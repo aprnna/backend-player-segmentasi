@@ -32,6 +32,15 @@ class ScrappingService(Service):
         except ValueError as e:
             return self.failedOrSuccessRequest('failed', 500, errorHandler(e.errors()))
         
+    def getAllScrappingBySteamId(self, steam_id):
+        try:
+            scrappings = scrapping_repository.getAllScrappingBySteamId(steam_id)
+            if not scrappings:
+                return self.failedOrSuccessRequest('failed', 404, 'No scrapping data found for this Steam ID')
+            return self.failedOrSuccessRequest('success', 200, queryResultToDict(scrappings))
+        except ValueError as e:
+            return self.failedOrSuccessRequest('failed', 500, errorHandler(e.errors()))
+        
     def createNewScrapping(self, datas):
         try:
             saved_records = []

@@ -14,6 +14,13 @@ CORS(main_app)
 db = database(main_app)
 migrate = Migrate(main_app, db)
 
+
+proses_topic_association = db.Table('proses_topic_association',
+    db.Column('Proses_id', db.Integer, db.ForeignKey('steam_id_proses.Proses_id'), primary_key=True),
+    db.Column('Topic_id', db.Integer, db.ForeignKey('topic_modeling.Topic_id'), primary_key=True)
+)
+
+
 print("Server is running on url: " + BASE_URL + ":", PORT)
 
 if __name__ == "__main__":

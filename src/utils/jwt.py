@@ -5,7 +5,6 @@ def encode(data:dict):
     "user_id": data['user_id'],
     "name": data['name'],
     "email": data['email'],
-    
   }
   return jwt.encode(payload, config.JWT_ACCESS_TOKEN_SECRET,config.JWT_ACCESS_TOKEN_ALGORITHM)
   

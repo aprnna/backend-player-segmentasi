@@ -5,11 +5,13 @@ class ScrappingRepository:
         return Scrapping.query.all()
 
     def getScrappingBySteamId(self, steam_id):
-        return Scrapping.query.filter_by(steam_id=steam_id).first()
-    
+        return Scrapping.query.filter_by(Steam_ID=steam_id).first()
+    def getAllScrappingBySteamId(self, steam_id):
+        return Scrapping.query.filter_by(Steam_ID=steam_id).all()
+
     def createNewScrapping(self, data):
         newScrapping = Scrapping(
-            Steam_id=data["Steam_ID"],
+            Steam_ID=data["Steam_ID"],
             Page=data["Page"],
             Game=data["Game"],
             Genre=data["Genre"],

@@ -145,8 +145,8 @@ def get_game_reviews(steam_ids: list):
         raw_reviews = scrape_user_reviews(steam_id)
         all_reviews.extend(raw_reviews)
     if not all_reviews:
-        return pd.DataFrame()
-    return pd.DataFrame(all_reviews)
+        return all_reviews
+    return all_reviews
 
 def main():
     csv_files = glob.glob(os.path.join(INPUT_DIR, '*.csv'))
