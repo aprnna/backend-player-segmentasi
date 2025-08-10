@@ -1,36 +1,81 @@
 from flask import request, jsonify, g
 from flask import Blueprint
-from bertopic import BERTopic
 from src.services.ScrappingService import ScrappingService
 from src.services.TopicModelingService import TopicModelingService
+from src.services.SegmentasiService import SegmentationService
+from src.services.AnalysisOrchestratorService import AnalysisOrchestratorService
 from src.utils.preprocessing.text_processor import preprocess_single_text
-from src.utils.scraping.steam_data import get_reviews_from_steam_ids
+from src.utils.scraping.steam_data import get_steam_id_data
 from src.utils.scraping.steam_review import get_game_reviews
 import src.utils.getResponse as Response
 import io
-import os
-from sklearn.metrics.pairwise import cosine_similarity, cosine_distances
 import pandas as pd
-from sentence_transformers import SentenceTransformer
 import numpy as np
 from src.middlewares.AuthMiddleware import isAuthenticated
 
 AnalyzeApp = Blueprint('AnalyzeApp', __name__,)
 scrappingService = ScrappingService()
 topicModelingService = TopicModelingService()
+segmentationService = SegmentationService()
+analysisOrchestratorService = AnalysisOrchestratorService()
+
+# --- Endpoint untuk Analisis Lengkap ---
+@AnalyzeApp.route('/full_steam_id', methods=['POST'])
+@isAuthenticated
+def analyze_steam_data_full_pipeline():
+    data = request.json
+    steam_ids = data.get('steam_ids', [])
+    if not steam_ids or not isinstance(steam_ids, list):
+        return Response.error({'error': 'Input tidak valid. Harap berikan list dari Steam ID.'}), 400
+    
+    # Panggil satu fungsi dari service orkestrator
+    result = analysisOrchestratorService.run_full_analysis_pipeline(steam_ids, g.user['user_id'])
+    
+    if result.get('status') == 'success':
+        return Response.success(result.get('data'), "Analisis lengkap berhasil dijalankan.")
+    else:
+        return Response.error(result.get('data'), result.get('code', 500))
+
 
 @AnalyzeApp.route('/test', methods=['GET'])
 def test():
     return Response.success("Analyze App is running!", "success")
 
-@AnalyzeApp.route('/scrapping', methods=['POST'])
-def scrapping():
+@AnalyzeApp.route('/segmentasi', methods=['POST'])
+def segmentasi():
     data = request.json
     steam_ids = data.get('steam_ids', [])
-
     if not steam_ids or not isinstance(steam_ids, list):
         return Response.error("Invalid input. Please provide a list of Steam IDs.", 400)
-    return Response.success(scrappingService.createNewScrapping(steam_ids), "success scrapping data")
+    segmentationService.run_segmentation_pipeline(steam_ids)
+    return Response.success("Segmentasi pipeline is running!", "success")
+
+@AnalyzeApp.route('/scrapping-review', methods=['POST'])
+def scrapping_review():
+    data = request.json
+    steam_ids = data.get('steam_ids', [])
+    if not steam_ids or not isinstance(steam_ids, list):
+        return Response.error("Invalid input. Please provide a list of Steam IDs.", 400)
+    reviews = get_game_reviews(steam_ids)
+    if not reviews:
+        return Response.error("No reviews found for the provided Steam IDs.", 404)
+    df = pd.DataFrame(reviews)
+    df.to_csv('scraped_steam_reviews.csv', index=False)
+    return Response.success(reviews, "success scrapping data")
+
+@AnalyzeApp.route('/scrapping-steam-data', methods=['POST'])
+def scrapping_steam_data():
+    data = request.json
+    steam_ids = data.get('steam_ids', [])
+    steam_data = get_steam_id_data(steam_ids)
+    # save csv
+    if steam_data:
+        df = pd.DataFrame(steam_data)
+        df.to_csv('scraped_steam_data.csv', index=False)
+    if not steam_data:
+        return Response.error("No data found for the provided Steam IDs.", 404)
+    return Response.success(steam_data, "success scrapping data")
+
 
 # --- Endpoint untuk Topic Modeling dari Steam ID ---
 @AnalyzeApp.route('/steam_id', methods=['POST'])

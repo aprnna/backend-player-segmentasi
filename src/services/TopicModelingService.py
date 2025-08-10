@@ -11,6 +11,8 @@ from src.utils.preprocessing.text_processor import preprocess_single_text
 from src.utils.scraping.steam_review import get_game_reviews
 from bertopic import BERTopic
 import pandas as pd
+from sklearn.preprocessing import normalize
+import numpy as np
 
 userRepository = UserRepository()
 steamIDProsesRepository = SteamIDProsesRepository()
@@ -30,12 +32,22 @@ class TopicModelingService(Service):
     def __init__(self):
         self.topic_model = self._load_model()
 
+    # Cukup satu fungsi load, yang lain bisa dihapus
     def _load_model(self):
-        MODEL_PATH = 'public/models/player_topic_model'
-        print(f"🔍 Mencoba memuat model dari: {MODEL_PATH}")
+    # Ganti path ke folder model yang baru
+        MODEL_PATH = "public/models/player_topic_model2"
+        print(f"🔍 Mencoba memuat model (safetensors) dari: {MODEL_PATH}")
         try:
+            # Tidak perlu lagi argumen embedding_model saat load
             model = BERTopic.load(MODEL_PATH, embedding_model="all-MiniLM-L6-v2")
-            print("✅ Model BERTopic berhasil dimuat.")
+            print("✅ Model BERTopic (safetensors) berhasil dimuat dengan benar.")
+
+            # (Opsional) Lakukan diagnosis cepat lagi untuk memastikan
+            if hasattr(model, "__version__"):
+                print(f"Versi BERTopic pada model: {model.__version__}")
+            else:
+                print("Atribut '__version__' tidak ditemukan.") # Seharusnya tidak terjadi lagi
+
             return model
         except Exception as e:
             print(f"❌ Gagal memuat model BERTopic: {e}")
@@ -58,8 +70,82 @@ class TopicModelingService(Service):
             return self.failedOrSuccessRequest('success', 200, queryResultToDict(topic_modeling))
         except ValueError as e:
             return self.failedOrSuccessRequest('failed', 500, errorHandler(e.errors()))
+
+    def _calculate_dominant_topic_per_game(self, reviews_df_with_results):
+        """
+        Menghitung topik dominan untuk setiap game berdasarkan kemiripan embedding.
         
-    def createNewTopicModeling(self, steam_ids, userId):
+        Args:
+            reviews_df_with_results (pd.DataFrame): DataFrame yang berisi kolom 'Game', 'topics', dan 'embedding'.
+
+        Returns:
+            pd.DataFrame: DataFrame dengan 'Game', 'Dominant_Topic', dan 'Similarity_Score'.
+        """
+        print("🔍 Mengekstrak embedding dan centroid topik...")
+        
+        # 1. Dapatkan centroid topik dari model BERTopic yang sudah dilatih
+        # Indeks array ini sesuai dengan ID topik
+        topic_centroids = self.topic_model.topic_embeddings_
+        
+        # 2. Normalisasi centroid topik
+        # Ini diperlukan untuk menghitung cosine similarity secara efisien menggunakan dot product
+        normalized_centroids = normalize(topic_centroids)
+        
+        # 3. Ambil embedding dari ulasan yang baru diprediksi dan normalisasi
+        review_embeddings = np.array(reviews_df_with_results['embedding'].tolist())
+        normalized_review_embeddings = normalize(review_embeddings)
+
+        # 4. Hitung cosine similarity antara setiap ulasan dan setiap centroid topik
+        # Hasilnya adalah matriks di mana baris = ulasan, kolom = topik
+        print("🧮 Menghitung matriks kemiripan...")
+        similarity_matrix = np.dot(normalized_review_embeddings, normalized_centroids.T)
+        
+        # 5. Buat DataFrame dari hasil kemiripan
+        topic_ids = self.topic_model.get_topic_info().Topic.tolist()
+        sim_df = pd.DataFrame(similarity_matrix, columns=topic_ids)
+        
+        # Tambahkan nama game ke DataFrame kemiripan
+        sim_df['Game'] = reviews_df_with_results['Game'].values
+        
+        # 6. Agregasi untuk mendapatkan rata-rata kemiripan per game-topik
+        print("🔄 Mengagregasi kemiripan per game...")
+        # Ubah format dari wide ke long
+        melted_df = sim_df.melt(
+            id_vars='Game', 
+            var_name='topic', 
+            value_name='similarity',
+            # Abaikan topik outlier (-1) dari analisis dominan
+            value_vars=[c for c in sim_df.columns if c != 'Game' and c != -1] 
+        )
+        
+        # Hitung rata-rata kemiripan
+        mean_sim_per_game = melted_df.groupby(['Game', 'topic'])['similarity'].mean().reset_index()
+        
+        # 7. (Opsional tapi direkomendasikan) Beri penalti pada topik yang terlalu umum
+        topic_counts = mean_sim_per_game['topic'].value_counts(normalize=True)
+        penalty_factor = 1 - topic_counts
+        mean_sim_per_game['penalized_sim'] = mean_sim_per_game.apply(
+            lambda row: row['similarity'] * penalty_factor.get(row['topic'], 1),
+            axis=1
+        )
+
+        # 8. Temukan topik dengan skor tertinggi untuk setiap game
+        print("🏆 Menentukan topik dominan...")
+        # Temukan indeks baris dengan 'penalized_sim' maksimum untuk setiap game
+        idx = mean_sim_per_game.groupby('Game')['penalized_sim'].idxmax()
+        
+        # Pilih baris tersebut untuk mendapatkan hasil akhir
+        dominant_topics = mean_sim_per_game.loc[idx, ['Game', 'topic', 'similarity']].reset_index(drop=True)
+        
+        # Ubah nama kolom agar lebih jelas
+        dominant_topics = dominant_topics.rename(columns={
+            'topic': 'Dominant_Topic',
+            'similarity': 'Similarity_Score'
+        })
+        
+        return dominant_topics
+        
+    def createNewTopicModeling(self, steam_ids, userId,  steam_proses_obj):
         if not self.topic_model:
             return self.failedOrSuccessRequest('failed', 503, {'message': 'Model analisis tidak tersedia.'})
         try:
@@ -78,7 +164,6 @@ class TopicModelingService(Service):
                     reviews = getReviewsScrapping.get('data', [])
                     for review in reviews:
                         results.append(review)
-            print(results)
 
             if steam_id_scrapping:
                 print(f"🚀 Memulai scraping untuk Steam IDs: {steam_id_scrapping}")
@@ -89,16 +174,6 @@ class TopicModelingService(Service):
                         results.append(review)
             print(f"Total reviews yang akan dianalisis: {len(results)}")
             reviews_df = pd.DataFrame(results)
-            # getReviewsScrapping = scrapingService.getAllScrappingBySteamId(steam_ids)
-            # if getReviewsScrapping.get('status') == 'failed':
-            #     print(f"🚀 Memulai scraping untuk Steam IDs: {steam_ids}")
-            #     reviews = get_game_reviews(steam_ids)
-            #     reviews_df = pd.DataFrame(reviews)
-            #     list_of_reviews = reviews_df.to_dict('records')
-            #     scrapingService.createNewScrapping(list_of_reviews)
-            # else:
-            #     reviews = getReviewsScrapping.get('data', [])
-            # reviews_df = pd.DataFrame(reviews)
 
             if reviews_df.empty:
                 return self.failedOrSuccessRequest('success', 200, {'message': 'Tidak ada review yang ditemukan.'})
@@ -106,13 +181,30 @@ class TopicModelingService(Service):
             reviews_df.dropna(subset=['Review'], inplace=True)
             reviews = reviews_df['Review'].tolist()
             cleaned_reviews = [preprocess_single_text(review) for review in reviews]
-            steamId_as_string = ", ".join(steam_ids)
-            steam_proses = steamIDProsesRepository.createNewSteamIDProses(steam_ids=steamId_as_string, user_id=userId)
+
+            # 1. Hasilkan embedding untuk ulasan yang sudah dibersihkan
+            print(f"⚙️ Membuat embedding untuk {len(cleaned_reviews)} review baru...")
+            new_embeddings = self.topic_model.embedding_model.embed(cleaned_reviews)
+
+            # 2. Dapatkan prediksi topik menggunakan embedding yang sudah dibuat
+            print(f"⚙️ Menganalisis topik dengan BERTopic...")
+            topics, _ = self.topic_model.transform(cleaned_reviews, embeddings=new_embeddings)
             
-            print(f"⚙️ Menganalisis {len(cleaned_reviews)} review dengan BERTopic...")
-            # Dapatkan prediksi topik untuk setiap review
-            topics, _ = self.topic_model.transform(cleaned_reviews)
+            # 3. Tambahkan hasil ke DataFrame untuk analisis lebih lanjut
             reviews_df['topics'] = topics
+            reviews_df['embedding'] = list(new_embeddings) # Simpan embedding sebagai list dalam kolom
+
+            # 4. Panggil metode baru untuk menghitung dan menyimpan topik dominan
+            print("\n📊 Memulai proses perhitungan topik dominan per game...")
+            dominant_topic_df = self._calculate_dominant_topic_per_game(reviews_df)
+            
+            # Simpan hasilnya ke file CSV
+            output_path = "dominant_topic_per_game.csv"
+            dominant_topic_df.to_csv(output_path, index=False)
+            print(f"✅ Topik dominan per game berhasil disimpan di: {output_path}\n")
+
+            steam_proses = steam_proses_obj
+            
             reviews_df.to_csv('predicted_reviews.csv', index=False)  # Simpan hasil prediksi
             # 4. Proses Penyimpanan ke Database dengan Relasi
             unique_topics = sorted(list(set(topics)))

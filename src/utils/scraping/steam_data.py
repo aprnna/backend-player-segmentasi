@@ -45,7 +45,25 @@ def get_game_genre(appid):
         return []
 
     return []
-
+# Gantikan get_game_name dan get_game_genre dengan ini
+def get_game_details(appid):
+    """Mengambil nama dan genre game dalam satu panggilan API."""
+    print(f"📌 Mengambil detail untuk AppID: {appid}")
+    url = f'https://store.steampowered.com/api/appdetails?appids={appid}&cc=us'
+    try:
+        response = requests.get(url, timeout=10) # Tambahkan timeout
+        response.raise_for_status() # Cek jika ada error http
+        data = response.json()
+        
+        app_data = data.get(str(appid))
+        if app_data and app_data.get('success'):
+            game_name = app_data['data'].get('name', 'Unknown')
+            genres_list = [genre['description'] for genre in app_data['data'].get('genres', [])]
+            return game_name, ", ".join(genres_list)
+    except (requests.exceptions.RequestException, ValueError, KeyError) as e:
+        print(f"⚠️ Gagal mengambil detail untuk AppID {appid}: {e}")
+    
+    return 'Unknown', '' # Return tuple kosong jika gagal
 # Fungsi untuk mengambil jumlah achievement yang sudah dicapai pemain
 def get_game_achievements(steam_id, appid):
     print(f"🏆 Mengambil achievement untuk Steam ID: {steam_id}, AppID: {appid}")
@@ -65,21 +83,21 @@ def get_game_achievements(steam_id, appid):
 
     return 0
 
-# Fungsi untuk mengambil review game
-def get_game_reviews(appid, num_reviews=5):
-    print(f"📝 Mengambil review untuk AppID: {appid}")
-    url = f'https://store.steampowered.com/appreviews/{appid}?json=1&language=all'
-    response = requests.get(url)
+# # Fungsi untuk mengambil review game
+# def get_game_reviews(appid, num_reviews=5):
+#     print(f"📝 Mengambil review untuk AppID: {appid}")
+#     url = f'https://store.steampowered.com/appreviews/{appid}?json=1&language=all'
+#     response = requests.get(url)
 
-    if response.status_code != 200:
-        print(f"⚠️ Gagal mengambil review untuk AppID: {appid}")
-        return []
+#     if response.status_code != 200:
+#         print(f"⚠️ Gagal mengambil review untuk AppID: {appid}")
+#         return []
 
-    try:
-        data = response.json()
-        return [review['review'] for review in data.get('reviews', [])[:num_reviews]]
-    except ValueError:
-        return []
+#     try:
+#         data = response.json()
+#         return [review['review'] for review in data.get('reviews', [])[:num_reviews]]
+#     except ValueError:
+#         return []
 
 # Fungsi untuk mengambil daftar game dari Steam ID
 def get_owned_games_by_steam_id(steam_id, index, total):
@@ -100,31 +118,32 @@ def get_owned_games_by_steam_id(steam_id, index, total):
         for i, game in enumerate(games):
             appid = game['appid']
             playtime = game['playtime_forever'] / 60
-            genres = get_game_genre(appid)
-            game_name = get_game_name(appid)
+            game_name, genres_str = get_game_details(appid) 
+            # genres = get_game_genre(appid)
+            # game_name = get_game_name(appid)
             achievement_count = get_game_achievements(steam_id, appid)
-            reviews = get_game_reviews(appid, num_reviews=5)
-            reviews_text = ' | '.join(reviews) if reviews else 'No Reviews'
+            # reviews = get_game_reviews(appid, num_reviews=5)
+            # reviews_text = ' | '.join(reviews) if reviews else 'No Reviews'
 
             games_data.append({
                 'Steam ID': steam_id,
                 'App ID': appid,
                 'Game Name': game_name,
                 'Playtime (hours)': playtime,
-                'Genres': ', '.join(genres),
+                'Genres': genres_str,
                 'Achievements': achievement_count,
-                'Reviews': reviews_text
+                # 'Reviews': reviews_text
             })
 
             print(f"   🕹️ [{i+1}/{len(games)}] {game_name} berhasil diproses! 🎮")
 
-            time.sleep(2)  # Hindari rate limiting
+            time.sleep(1)  # Hindari rate limiting
 
-            # SAMPLE: Hentikan jika sudah cukup data
-            # Misalnya, jika kita hanya butuh 3 game per Steam ID
-            if len(games_data) >= 3:
-                print("✅ Sudah cukup review yang diambil, menghentikan proses.")
-                break
+            # # SAMPLE: Hentikan jika sudah cukup data
+            # # Misalnya, jika kita hanya butuh 3 game per Steam ID
+            # if len(games_data) >= 3:
+            #     print("✅ Sudah cukup review yang diambil, menghentikan proses.")
+            #     break
             
             
         return games_data
@@ -132,24 +151,24 @@ def get_owned_games_by_steam_id(steam_id, index, total):
         return []
 
 
-def get_reviews_from_steam_ids(steam_ids: list):
+def get_steam_id_data(steam_ids: list):
     all_reviews = []
     try:
         for idx, steam_id in enumerate(steam_ids):
-          print(f"\n🔄 [{idx+1}/{len(steam_ids)}] Memproses Steam ID: {steam_id}")
-          # Pastikan steam_id adalah string
-          if not isinstance(steam_id, str):
-              print(f"⚠️ Steam ID {steam_id} tidak valid, harus berupa string.")
-              continue
-          # Ambil daftar game untuk Steam ID ini
-          games_data = get_owned_games_by_steam_id(steam_id, idx, len(steam_ids))
-          if not games_data:
-              print(f"⚠️ Tidak ada game ditemukan untuk Steam ID: {steam_id}")
-              continue
-          all_reviews.extend(games_data)
-          print(f"✅ Selesai memproses Steam ID: {steam_id}")
-          time.sleep(1)
-         
+            print(f"\n🔄 [{idx+1}/{len(steam_ids)}] Memproses Steam ID: {steam_id}")
+            # Pastikan steam_id adalah string
+            if not isinstance(steam_id, str):
+                print(f"⚠️ Steam ID {steam_id} tidak valid, harus berupa string.")
+                continue
+            # Ambil daftar game untuk Steam ID ini
+            games_data = get_owned_games_by_steam_id(steam_id, idx, len(steam_ids))
+            if not games_data:
+                print(f"⚠️ Tidak ada game ditemukan untuk Steam ID: {steam_id}")
+                continue
+            all_reviews.extend(games_data)
+            print(f"✅ Selesai memproses Steam ID: {steam_id}")
+            time.sleep(1)
+            
     except (requests.exceptions.RequestException, ValueError) as e:
         print(f"⚠️ Gagal memproses Steam ID {steam_id}: {e}")
 
