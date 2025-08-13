@@ -5,6 +5,7 @@ import os
 import glob
 from tqdm import tqdm
 
+
 # Ganti dengan Steam API Key Anda
 API_KEY = 'CF79089808D1F5AE17D9B3B5441E2DB8'
 # Fungsi untuk mengambil nama game berdasarkan AppID
@@ -100,8 +101,7 @@ def get_game_achievements(steam_id, appid):
 #         return []
 
 # Fungsi untuk mengambil daftar game dari Steam ID
-def get_owned_games_by_steam_id(steam_id, index, total):
-    print(f"\n🔄 [{index+1}/{total}] Mengambil daftar game untuk Steam ID: {steam_id}")
+def get_owned_games_by_steam_id(steam_id):
     url = f'https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/?key={API_KEY}&steamid={steam_id}&format=json'
     response = requests.get(url)
 
@@ -126,12 +126,12 @@ def get_owned_games_by_steam_id(steam_id, index, total):
             # reviews_text = ' | '.join(reviews) if reviews else 'No Reviews'
 
             games_data.append({
-                'Steam ID': steam_id,
-                'App ID': appid,
-                'Game Name': game_name,
-                'Playtime (hours)': playtime,
-                'Genres': genres_str,
-                'Achievements': achievement_count,
+                'steam_id': steam_id,
+                'app_id': appid,
+                'game_name': game_name,
+                'playtime_hours': playtime,
+                'genres': genres_str,
+                'achievements': achievement_count,
                 # 'Reviews': reviews_text
             })
 
@@ -151,7 +151,7 @@ def get_owned_games_by_steam_id(steam_id, index, total):
         return []
 
 
-def get_steam_id_data(steam_ids: list):
+def get_steam_ids_data(steam_ids: list):
     all_reviews = []
     try:
         for idx, steam_id in enumerate(steam_ids):
@@ -161,7 +161,8 @@ def get_steam_id_data(steam_ids: list):
                 print(f"⚠️ Steam ID {steam_id} tidak valid, harus berupa string.")
                 continue
             # Ambil daftar game untuk Steam ID ini
-            games_data = get_owned_games_by_steam_id(steam_id, idx, len(steam_ids))
+            print(f"\n🔄 [{idx+1}/{len(steam_ids)}] Mengambil daftar game untuk Steam ID: {steam_id}")
+            games_data = get_owned_games_by_steam_id(steam_id)
             if not games_data:
                 print(f"⚠️ Tidak ada game ditemukan untuk Steam ID: {steam_id}")
                 continue
@@ -173,3 +174,21 @@ def get_steam_id_data(steam_ids: list):
         print(f"⚠️ Gagal memproses Steam ID {steam_id}: {e}")
 
     return all_reviews
+
+def get_steam_id_data(steam_id):
+    try:
+        print(f"\n🔄 Memproses Steam ID: {steam_id}")
+        # Pastikan steam_id adalah string
+        if not isinstance(steam_id, str):
+            print(f"⚠️ Steam ID {steam_id} tidak valid, harus berupa string.")
+        # Ambil daftar game untuk Steam ID ini
+        games_data = get_owned_games_by_steam_id(steam_id, 1, 1)
+        if not games_data:
+            print(f"⚠️ Tidak ada game ditemukan untuk Steam ID: {steam_id}")
+        print(f"✅ Selesai memproses Steam ID: {steam_id}")
+        time.sleep(1)
+            
+    except (requests.exceptions.RequestException, ValueError) as e:
+        print(f"⚠️ Gagal memproses Steam ID {steam_id}: {e}")
+
+    return games_data

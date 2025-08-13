@@ -6,7 +6,27 @@ class SegmentasiRepository:
 
     def getSegmentasiByProsesId(self, proses_id):
         return Segmentasi.query.filter_by(Proses_id=proses_id).first()
+    def create_summary(self, summary_data):
+        """Membuat satu entri ringkasan untuk sebuah proses segmentasi."""
+        try:
+            new_summary = Segmentasi(
+                Proses_id=summary_data['Proses_id'],
+                segmentation_csv_path=summary_data['segmentation_csv_path'],
+                membership_csv_path=summary_data['membership_csv_path'],
+                karakteristik_json_path=summary_data['karakteristik_json_path'],
+                interpretasi_json_path=summary_data['interpretasi_json_path']
+            )
+            db.session.add(new_summary)
+            db.session.commit()
+            return new_summary
+        except Exception as e:
+            db.session.rollback()
+            print(f"❌ Gagal menyimpan ringkasan segmentasi ke DB: {e}")
+            raise e
 
+    def get_summary_by_proses_id(self, proses_id):
+        return Segmentasi.query.filter_by(proses_id=proses_id).first()
+    
     def createNewSegmentasi(self, data):
         newSegmentasi = Segmentasi(
             steam_id=data['steam_id'],

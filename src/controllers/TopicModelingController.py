@@ -23,13 +23,11 @@ analysisOrchestratorService = AnalysisOrchestratorService()
 @AnalyzeApp.route('/full_steam_id', methods=['POST'])
 @isAuthenticated
 def analyze_steam_data_full_pipeline():
-    data = request.json
-    steam_ids = data.get('steam_ids', [])
-    if not steam_ids or not isinstance(steam_ids, list):
-        return Response.error({'error': 'Input tidak valid. Harap berikan list dari Steam ID.'}), 400
+    steam_ids = []
+    if request.form.get('steam_ids'):
+        steam_ids = request.form['steam_ids'].split(", ")
     
-    # Panggil satu fungsi dari service orkestrator
-    result = analysisOrchestratorService.run_full_analysis_pipeline(steam_ids, g.user['user_id'])
+    result = analysisOrchestratorService.run_full_analysis_pipeline(steam_ids, request.files, g.user['user_id'])
     
     if result.get('status') == 'success':
         return Response.success(result.get('data'), "Analisis lengkap berhasil dijalankan.")
@@ -38,8 +36,25 @@ def analyze_steam_data_full_pipeline():
 
 
 @AnalyzeApp.route('/test', methods=['GET'])
+@isAuthenticated
 def test():
-    return Response.success("Analyze App is running!", "success")
+    return Response.success(g.user, "success")
+
+@AnalyzeApp.route('/<proses_id>', methods=['GET'])
+@isAuthenticated
+def getAnalayzeProses(proses_id):
+    data = analysisOrchestratorService.getDetailProses(proses_id, g.user['user_id'])
+    if not data:
+        return Response.error("No analysis process found.", 404)
+    return Response.success(data['data'], "success")
+
+@AnalyzeApp.route('', methods=['GET'])
+@isAuthenticated
+def getAnalyzeProses():
+    data = analysisOrchestratorService.getAllProsesByUserId(g.user['user_id'])
+    if not data:
+        return Response.error("No analysis processes found.", 404)
+    return Response.success(data['data'], "success")
 
 @AnalyzeApp.route('/segmentasi', methods=['POST'])
 def segmentasi():

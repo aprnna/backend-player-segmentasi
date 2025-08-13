@@ -6,6 +6,8 @@ class SteamIDProses(db.Model):
     Proses_id = db.Column(db.Integer, primary_key=True)
     Steam_id = db.Column(db.String(255))
     User_id = db.Column(db.Integer, db.ForeignKey('users.user_id'))
+    
+    segmentasi_entries = db.relationship('Segmentasi', backref='proses', lazy=True)
 
     topics = db.relationship(
         'TopicModeling', 

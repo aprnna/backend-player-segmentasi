@@ -754,3 +754,234 @@ plt.title("User Segments by Archetype (UMAP Projection)")
 plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
 plt.tight_layout()
 plt.show()
+
+
+import pandas as pd
+from collections import Counter
+import json
+
+# 0. Load data mentah untuk dapatkan min/max tiap fitur
+raw = pd.read_csv("transformation_segmentation_v4.csv")
+# Kolom di raw: "Total Game", "Total Playtime", "Total Achievement"
+min_game, max_game = raw["Total Game"].min(), raw["Total Game"].max()
+min_play, max_play = raw["Total Playtime"].min(), raw["Total Playtime"].max()
+min_ach,  max_ach  = raw["Total Achievement"].min(), raw["Total Achievement"].max()
+
+# 1. Load data hasil segmentasi akhir (nilai sudah dinormalisasi 0–1)
+df = pd.read_csv("archetypal_segments_elbowK_top3.csv")
+# Pastikan kolom-nya bernama total_game, total_playtime, total_achievement
+# dan berisi nilai 0–1
+
+# 2. Tentukan jumlah arketipe dari kolom weight
+K = sum(c.startswith("archetype_") and c.endswith("_weight") for c in df.columns)
+weight_cols = [f"archetype_{k+1}_weight" for k in range(K)]
+
+# 3. Pilih arketipe dominan per baris
+df["dominant_archetype"] = df[weight_cols].idxmax(axis=1)
+
+# 4. Inverse transform ke skala asli
+def inv_scale(norm, min_, max_):
+    return norm * (max_ - min_) + min_
+
+df["total_game_orig"]       = df["total_game"].apply(lambda x: round(inv_scale(x, min_game, max_game), 2))
+df["total_playtime_orig"]   = df["total_playtime"].apply(lambda x: round(inv_scale(x, min_play, max_play), 2))
+df["total_achievement_orig"] = df["total_achievement"].apply(lambda x: round(inv_scale(x, min_ach, max_ach), 2))
+
+# 5. Group berdasarkan arketipe dominan dan hitung rata-rata skala asli
+results = []
+json_output = {}
+
+for ark, subset in df.groupby("dominant_archetype"):
+    avg_game       = subset["total_game_orig"].mean().round(2)
+    avg_playtime   = subset["total_playtime_orig"].mean().round(2)
+    avg_achievement= subset["total_achievement_orig"].mean().round(2)
+
+    # Mode topik (skip -1 dan 0 jika perlu)
+    dom_topic = subset["dominant_topic"]
+    dom_topic = dom_topic[~dom_topic.isin([-1, 0])] if dom_topic.notna().any() else dom_topic
+    dominant_topic = dom_topic.mode().iloc[0] if not dom_topic.mode().empty else None
+
+    # Hitung Top 3 genre dari kolom top_1_genre, top_2_genre, top_3_genre
+    all_genres = pd.concat([
+        subset["top_1_genre"],
+        subset["top_2_genre"],
+        subset["top_3_genre"]
+    ])
+    top3_genres = [str(g) for g, _ in Counter(all_genres.dropna()).most_common(3)]
+
+    # Simpan ke list dan ke JSON
+    results.append({
+        "Archetype":             ark,
+        "Avg_Game_Orig":         avg_game,
+        "Avg_Playtime_Orig":     avg_playtime,
+        "Avg_Achievement_Orig":  avg_achievement,
+        "Dominant_Topic":        dominant_topic,
+        "Top_3_Genre":           top3_genres
+    })
+    json_output[ark] = {
+        "average_game_owned":    avg_game,
+        "average_playtime":      avg_playtime,
+        "average_achievement":   avg_achievement,
+        "dominant_topic":        str(dominant_topic),
+        "top_3_genres":          top3_genres
+    }
+
+# 6. Simpan ke CSV & JSON
+df_result = pd.DataFrame(results)
+df_result.to_csv("karakteristik_arketipe_scaled_back.csv", index=False)
+
+with open("karakteristik_arketipe_llm_scaled_back.json", "w") as f:
+    json.dump(json_output, f, indent=4)
+
+print("✅ Inverse scaling dan penyimpanan selesai:")
+print("   • karakteristik_arketipe_scaled_back.csv")
+print("   • karakteristik_arketipe_llm_scaled_back.json")
+
+
+import pandas as pd
+from collections import Counter
+import json
+
+# 1. Load karakteristik arketipe hasil inverse scaling
+df = pd.read_csv("karakteristik_arketipe_scaled_back.csv")
+
+# 2. Load mapping keywords per topic dari CSV
+topic_kw_df = pd.read_csv("daftar_topik_keywords_automerged.csv")
+# Bentuk dict: topic_id (int) -> list of keywords
+topic_keywords = {
+    int(row['topic']): row['keywords'].split(', ')
+    for _, row in topic_kw_df.iterrows()
+}
+
+# 3. Load mapping genre code ke nama genre dari CSV
+genre_map_df = pd.read_csv("genre_code_mapping.csv")
+# Asumsi kolom: Genre, Genre_Code
+genre_map = {
+    str(row['Genre_Code']): row['Genre']
+    for _, row in genre_map_df.iterrows()
+}
+
+# 4. Siapkan output JSON
+json_output = {}
+for _, row in df.iterrows():
+    ark = row['Archetype']
+    avg_game = row['Avg_Game_Orig']
+    avg_playtime = row['Avg_Playtime_Orig']
+    avg_achievement = row['Avg_Achievement_Orig']
+    dom_topic_id = int(row['Dominant_Topic']) if pd.notna(row['Dominant_Topic']) else None
+
+    # Ambil keywords topik dari mapping
+    topic_entry = {
+        "id": dom_topic_id,
+        "keywords": topic_keywords.get(dom_topic_id, [])
+    }
+
+    # Map top_3_genres kode ke nama di dalam loop
+    genre_codes = row['Top_3_Genre'].strip('[]').replace("'", "").split(',')
+    genre_codes = [c.strip() for c in genre_codes if c.strip()]
+    genres = [genre_map.get(c, c) for c in genre_codes]
+
+    # Susun dict per arketipe
+    json_output[ark] = {
+        "average_game_owned": avg_game,
+        "average_playtime": avg_playtime,
+        "average_achievement": avg_achievement,
+        "dominant_topic": topic_entry,
+        "top_3_genres": genres
+    }
+
+# 5. Simpan JSON
+target_file = "karakteristik_arketipe_enriched.json"
+with open(target_file, "w", encoding="utf-8") as f:
+    json.dump(json_output, f, indent=4, ensure_ascii=False)
+
+print(f"✅ JSON with enriched topics and genre names saved to '{target_file}'")
+
+
+import json
+import pandas as pd
+import requests
+from difflib import SequenceMatcher
+
+# 1. Load archetype JSON dan topic keywords mapping
+authority_json_path = "karakteristik_arketipe_enriched.json"
+topic_kw_path = "daftar_topik_keywords_automerged.csv"
+
+with open(authority_json_path, "r", encoding="utf-8") as f:
+    archetypes = json.load(f)
+
+topic_kw_df = pd.read_csv(topic_kw_path)
+topic_mapping = {int(r['topic']): r['keywords'].split(', ')[:3] for _, r in topic_kw_df.iterrows()}
+
+# 2. Konfigurasi API
+API_KEY = "YOUR_API_KEY"  # ganti dengan API key Anda
+ENDPOINT = "https://api.groq.com/openai/v1/chat/completions"
+
+# 3. Build improved prompt dengan aturan "interpretasi unik"
+system_msg = {
+    "role": "system",
+    "content": (
+        "Anda adalah seorang Analis Data berpengalaman dan pakar perilaku pemain game. "
+        "Tugas Anda adalah menafsirkan data JSON untuk setiap arketipe pemain berdasarkan fitur kuantitatif "
+        "dan topik dominan yang dihasilkan dari analisis review game.\n\n"
+        "FORMAT OUTPUT:\n"
+        "Jawaban harus berupa array JSON tanpa teks tambahan. "
+        "Setiap elemen berisi:\n"
+        "  - \"arketipe\": nama key arketipe.\n"
+        "  - \"fitur_kuantitatif\": ringkasan angka aktual.\n"
+        "  - \"topik_dominan\": interpretasi makna topik, bukan sekadar kata kunci.\n"
+        "  - \"interpretasi\": 1–2 kalimat berbahasa Indonesia yang mencakup angka aktual, makna topik, dan opini karakter pemain.\n\n"
+        "ATURAN PENTING:\n"
+        "- Setiap 'interpretasi' harus unik, tidak boleh sama persis atau terlalu mirip dengan arketipe lain.\n"
+        "- Variasikan fokus insight (misalnya: kompetitif, sosial, eksploratif, artistik, nostalgia, dll).\n"
+        "- Gunakan bahasa alami yang kaya sinonim.\n\n"
+        "MAPPING TOPIK:\n"
+        f"{json.dumps(topic_mapping, ensure_ascii=False)}\n\n"
+        "RESPOND ONLY WITH A JSON ARRAY, tanpa teks tambahan."
+    )
+}
+
+# 4. User message
+user_msg = {"role": "user", "content": json.dumps(archetypes, ensure_ascii=False)}
+
+# 5. Kirim request
+payload = {
+    "model": "llama3-8b-8192",
+    "messages": [system_msg, user_msg],
+    "temperature": 0.7,
+    "max_tokens": 1024
+}
+headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
+response = requests.post(ENDPOINT, headers=headers, json=payload)
+response.raise_for_status()
+raw = response.json()["choices"][0]["message"]["content"].strip()
+
+# 6. Extract JSON
+start = raw.find('[')
+end = raw.rfind(']')
+json_text = raw[start:end+1] if start != -1 and end != -1 else raw
+
+try:
+    parsed = json.loads(json_text)
+except json.JSONDecodeError:
+    print("⚠️ Parse JSON gagal. Raw output:\n", raw)
+    raise
+
+# 7. Post-processing: pastikan interpretasi unik
+def is_similar(a, b, threshold=0.85):
+    return SequenceMatcher(None, a.lower(), b.lower()).ratio() > threshold
+
+unique_interpretations = []
+for item in parsed:
+    interp = item["interpretasi"]
+    # Jika terlalu mirip dengan sebelumnya, tambahkan variasi
+    if any(is_similar(interp, seen) for seen in unique_interpretations):
+        item["interpretasi"] += " Karakter pemain ini juga memiliki kecenderungan unik yang membedakannya."
+    unique_interpretations.append(item["interpretasi"])
+
+# 8. Simpan dan print
+with open("interpretasi_arketipe.json", "w", encoding="utf-8") as f:
+    json.dump(parsed, f, ensure_ascii=False, indent=4)
+
+print("✅ JSON interpretasi disimpan di 'interpretasi_arketipe.json'")
+print(json.dumps(parsed, ensure_ascii=False, indent=4))

@@ -41,18 +41,26 @@ class TopicModelingService(Service):
             # Tidak perlu lagi argumen embedding_model saat load
             model = BERTopic.load(MODEL_PATH, embedding_model="all-MiniLM-L6-v2")
             print("✅ Model BERTopic (safetensors) berhasil dimuat dengan benar.")
-
-            # (Opsional) Lakukan diagnosis cepat lagi untuk memastikan
-            if hasattr(model, "__version__"):
-                print(f"Versi BERTopic pada model: {model.__version__}")
-            else:
-                print("Atribut '__version__' tidak ditemukan.") # Seharusnya tidak terjadi lagi
-
             return model
         except Exception as e:
             print(f"❌ Gagal memuat model BERTopic: {e}")
             return None
-    
+    def getAllTopicsByProsesId(self, proses_id):
+        try:
+            # Panggil metode repository yang sudah diperbaiki
+            list_of_topics = topic_modeling_repository.getAllTopicModelingByProsesId(proses_id)
+            if not list_of_topics:
+                return self.failedOrSuccessRequest(
+                    'failed', 
+                    404, 
+                    {'message': f'Tidak ada topik yang ditemukan untuk Proses ID: {proses_id}'}
+                )
+            return self.failedOrSuccessRequest('success', 200, queryResultToDict(list_of_topics))
+
+        except Exception as e:
+            print(f"❌ Error saat mengambil topik berdasarkan Proses ID: {e}")
+            return self.failedOrSuccessRequest('failed', 500, {'message': 'Terjadi kesalahan internal.'})
+
     def getTopicModelling(self):
         try:
             topic_modeling = topic_modeling_repository.getAllTopicModeling()
