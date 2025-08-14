@@ -21,6 +21,7 @@ class SteamIDProsesRepository:
             User_id=user_id
         )
         db.session.add(newSteamIDProses)
+        db.session.commit()
         return newSteamIDProses
 
     def getMaxProsesIdByUser(self, user_id):

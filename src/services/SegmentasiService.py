@@ -213,7 +213,7 @@ class SegmentationService(Service):
         print("--- [PIPELINE SEGMENTASI DIMULAI] ---")
         try:
             # tidak perlu base_dir
-            dominant_topics_path = "dominant_topic_per_game.csv"
+            dominant_output_path = os.path.join(unique_process_dir, "dominant_topic_per_game.csv")
             proses_id = steam_proses_obj.Proses_id
            
 
@@ -240,7 +240,7 @@ class SegmentationService(Service):
             # Pastikan tipe data 'steam_id' adalah string setelah membuat DataFrame
             if 'steam_id' in df_players.columns:
                 df_players['steam_id'] = df_players['steam_id'].astype(str)
-            df_dominant_topics = pd.read_csv(dominant_topics_path)
+            df_dominant_topics = pd.read_csv(dominant_output_path)
             print(df_dominant_topics)
 
             df_players.columns = [col.replace(' ', '_').replace('(', '').replace(')', '').lower() for col in df_players.columns]
@@ -284,8 +284,6 @@ class SegmentationService(Service):
             top_genres_per_user = df_final.groupby('steam_id')['genres'].apply(get_top_genres).rename('Top_3_Genres')
             dominant_topic_per_user = df_final.groupby('steam_id')['dominant_topic'].agg(lambda x: x.mode()[0]).rename('Dominant_Topic_User')
             df_profile = summary_stats.join(top_genres_per_user).join(dominant_topic_per_user).reset_index()
-            df_profile.to_csv('test.csv', index=False)
-            
             # ======================================================================
             # LANGKAH 4: FEATURE ENGINEERING
             # ======================================================================

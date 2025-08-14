@@ -133,8 +133,8 @@ class AnalysisOrchestratorService(Service):
             print(f"📝 Mencatat proses baru untuk User ID: {user_id} dengan Steam IDs: {steam_ids}")
             steam_ids_str = ", ".join(steam_ids)
             proses_catatan = steam_id_proses_repository.createNewSteamIDProses(steam_ids=steam_ids_str, user_id=user_id)
+            print(proses_catatan)
             proses_id = proses_catatan.Proses_id
-
             base_output_dir = "public/generated_outputs"
             print(f"✅ Proses berhasil dicatat dengan ID: {proses_id}")
             unique_process_dir = os.path.join(base_output_dir, f"proses_{proses_id}")
@@ -171,7 +171,6 @@ class AnalysisOrchestratorService(Service):
                 steam_proses_obj=proses_catatan,
                 unique_process_dir=unique_process_dir
             )
-
             if segmentation_result.get('status') == 'failed':
                 # Jika segmentasi gagal, hentikan proses
                 raise Exception(f"Sub-proses Segmentasi gagal: {segmentation_result.get('data', {}).get('message', 'Error tidak diketahui')}")

@@ -20,5 +20,6 @@ class TopicModelingRepository:
             Cluster=cluster
         )
         db.session.add(newTopicModeling)
+        # db.session.commit()
         return newTopicModeling
 
