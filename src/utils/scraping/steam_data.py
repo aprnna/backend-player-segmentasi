@@ -182,7 +182,7 @@ def get_steam_id_data(steam_id):
         if not isinstance(steam_id, str):
             print(f"⚠️ Steam ID {steam_id} tidak valid, harus berupa string.")
         # Ambil daftar game untuk Steam ID ini
-        games_data = get_owned_games_by_steam_id(steam_id, 1, 1)
+        games_data = get_owned_games_by_steam_id(steam_id)
         if not games_data:
             print(f"⚠️ Tidak ada game ditemukan untuk Steam ID: {steam_id}")
         print(f"✅ Selesai memproses Steam ID: {steam_id}")

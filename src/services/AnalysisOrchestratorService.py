@@ -8,6 +8,7 @@ from src.services.TopicModelingService import TopicModelingService
 from src.repositories.SteamIDProsesRepository import SteamIDProsesRepository
 import json
 import pandas as pd
+import os
 from src.utils.uploadFIle import upload_file
 topic_modeling_service = TopicModelingService()
 segmentation_service = SegmentationService()
@@ -133,8 +134,13 @@ class AnalysisOrchestratorService(Service):
             steam_ids_str = ", ".join(steam_ids)
             proses_catatan = steam_id_proses_repository.createNewSteamIDProses(steam_ids=steam_ids_str, user_id=user_id)
             proses_id = proses_catatan.Proses_id
-            print(f"✅ Proses berhasil dicatat dengan ID: {proses_id}")
 
+            base_output_dir = "public/generated_outputs"
+            print(f"✅ Proses berhasil dicatat dengan ID: {proses_id}")
+            unique_process_dir = os.path.join(base_output_dir, f"proses_{proses_id}")
+            # Buat folder jika belum ada
+            os.makedirs(unique_process_dir, exist_ok=True)
+            print(f"🗂️ Semua file output untuk Proses ID {proses_id} akan disimpan di: {unique_process_dir}")
             # ==========================================================
             # LANGKAH 2: JALANKAN PROSES TOPIC MODELING
             # ==========================================================
@@ -144,7 +150,8 @@ class AnalysisOrchestratorService(Service):
             topic_modeling_result = topic_modeling_service.createNewTopicModeling(
                 steam_ids=steam_ids, 
                 userId=user_id, 
-                steam_proses_obj=proses_catatan # Kirim objek proses yang sudah dibuat
+                steam_proses_obj=proses_catatan,
+                unique_process_dir=unique_process_dir
             )
 
             if topic_modeling_result.get('status') == 'failed':
@@ -161,7 +168,8 @@ class AnalysisOrchestratorService(Service):
             segmentation_result = segmentation_service.run_segmentation_pipeline(
                 steam_ids=steam_ids, 
                 user_id=user_id, 
-                steam_proses_obj=proses_catatan # Kirim objek proses yang sama
+                steam_proses_obj=proses_catatan,
+                unique_process_dir=unique_process_dir
             )
 
             if segmentation_result.get('status') == 'failed':

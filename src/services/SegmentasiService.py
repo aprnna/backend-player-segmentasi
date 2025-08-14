@@ -101,11 +101,44 @@ class SegmentationService(Service):
             response = requests.post(ENDPOINT, headers=headers, json=payload, timeout=60)
             response.raise_for_status()
             raw = response.json()["choices"][0]["message"]["content"].strip()
+            print(f"Raw response from LLM: {raw}")
+            parsed = None
+            try:
+                # Coba cara paling sederhana dulu
+                start, end = raw.find('['), raw.rfind(']')
+                if start != -1 and end != -1:
+                    json_text = raw[start:end+1]
+                    parsed = json.loads(json_text)
+                else: # Jika tidak ditemukan kurung siku, coba parse seluruh teks
+                    parsed = json.loads(raw)
 
-            # 5. Ekstrak JSON (sama seperti skrip Anda)
-            start, end = raw.find('['), raw.rfind(']')
-            json_text = raw[start:end+1] if start != -1 and end != -1 else raw
-            parsed = json.loads(json_text)
+            except json.JSONDecodeError as e:
+                print(f"⚠️ Gagal parse JSON standar. Mencoba perbaikan... Error: {e}")
+                # Strategi perbaikan: hapus koma di akhir (trailing comma)
+                # dan coba lagi. Ini adalah kesalahan umum dari LLM.
+                cleaned_text = json_text.strip()
+                # Hapus ```json, ```, dan newline di awal/akhir
+                if cleaned_text.startswith("```json"):
+                    cleaned_text = cleaned_text[7:]
+                if cleaned_text.startswith("```"):
+                    cleaned_text = cleaned_text[3:]
+                if cleaned_text.endswith("```"):
+                    cleaned_text = cleaned_text[:-3]
+                
+                # Coba parse lagi setelah dibersihkan
+                try:
+                    parsed = json.loads(cleaned_text)
+                except json.JSONDecodeError:
+                    # Jika masih gagal, lemparkan error agar bisa ditangkap di blok utama
+                    print(f"❌ Gagal mem-parse respons dari LLM bahkan setelah dibersihkan.")
+                    print("--- RAW Text yang Gagal di-Parse ---")
+                    print(raw)
+                    print("------------------------------------")
+                    raise # Lemparkan error asli agar pipeline berhenti
+
+            if not parsed:
+                raise ValueError("Hasil parsing JSON kosong.")
+
 
             # 6. Post-processing (sama seperti skrip Anda)
             def is_similar(a, b, threshold=0.85):
@@ -176,18 +209,13 @@ class SegmentationService(Service):
         print(f"✅ Berhasil menghitung karakteristik untuk {len(all_archetype_profiles)} arketipe.")        
         return all_archetype_profiles
 
-    def run_segmentation_pipeline(self, steam_ids, user_id, steam_proses_obj):
+    def run_segmentation_pipeline(self, steam_ids, user_id, steam_proses_obj, unique_process_dir):
         print("--- [PIPELINE SEGMENTASI DIMULAI] ---")
         try:
             # tidak perlu base_dir
             dominant_topics_path = "dominant_topic_per_game.csv"
             proses_id = steam_proses_obj.Proses_id
-            base_output_dir = "public/generated_outputs"
-            unique_process_dir = os.path.join(base_output_dir, f"proses_{proses_id}")
-            
-            # Buat folder jika belum ada
-            os.makedirs(unique_process_dir, exist_ok=True)
-            print(f"🗂️ Semua file output untuk Proses ID {proses_id} akan disimpan di: {unique_process_dir}")
+           
 
             # ======================================================================
             # LANGKAH 1 & 2: MEMUAT, MENGGABUNGKAN, DAN MEMBERSIHKAN DATA

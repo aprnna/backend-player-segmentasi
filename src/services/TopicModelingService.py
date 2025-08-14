@@ -13,6 +13,7 @@ from bertopic import BERTopic
 import pandas as pd
 from sklearn.preprocessing import normalize
 import numpy as np
+import os
 
 userRepository = UserRepository()
 steamIDProsesRepository = SteamIDProsesRepository()
@@ -153,7 +154,7 @@ class TopicModelingService(Service):
         
         return dominant_topics
         
-    def createNewTopicModeling(self, steam_ids, userId,  steam_proses_obj):
+    def createNewTopicModeling(self, steam_ids, userId,  steam_proses_obj, unique_process_dir):
         if not self.topic_model:
             return self.failedOrSuccessRequest('failed', 503, {'message': 'Model analisis tidak tersedia.'})
         try:
@@ -207,13 +208,13 @@ class TopicModelingService(Service):
             dominant_topic_df = self._calculate_dominant_topic_per_game(reviews_df)
             
             # Simpan hasilnya ke file CSV
-            output_path = "dominant_topic_per_game.csv"
-            dominant_topic_df.to_csv(output_path, index=False)
-            print(f"✅ Topik dominan per game berhasil disimpan di: {output_path}\n")
+            dominant_output_path = os.path.join(unique_process_dir, "dominant_topic_per_game.csv")
+            dominant_topic_df.to_csv(dominant_output_path, index=False)
+            print(f"✅ Topik dominan per game berhasil disimpan di: {dominant_output_path}\n")
 
             steam_proses = steam_proses_obj
-            
-            reviews_df.to_csv('predicted_reviews.csv', index=False)  # Simpan hasil prediksi
+            review_output_path = os.path.join(unique_process_dir, "predicted_reviews.csv")
+            reviews_df.to_csv(review_output_path, index=False)  # Simpan hasil prediksi
             # 4. Proses Penyimpanan ke Database dengan Relasi
             unique_topics = sorted(list(set(topics)))
             results = []
