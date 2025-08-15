@@ -21,13 +21,13 @@ analysisOrchestratorService = AnalysisOrchestratorService()
 
 # --- Endpoint untuk Analisis Lengkap ---
 @AnalyzeApp.route('/full_steam_id', methods=['POST'])
-# @isAuthenticated
+@isAuthenticated
 def analyze_steam_data_full_pipeline():
     steam_ids = []
     if request.form.get('steam_ids'):
         steam_ids = request.form['steam_ids'].split(", ")
     
-    result = analysisOrchestratorService.run_full_analysis_pipeline(steam_ids, request.files,3)
+    result = analysisOrchestratorService.run_full_analysis_pipeline(steam_ids, request.files, g.user['user_id'])
     
     if result.get('status') == 'success':
         return Response.success(result.get('data'), "Analisis lengkap berhasil dijalankan.")
