@@ -17,10 +17,12 @@ dependencies = [
     "matplotlib>=3.10.5",
     "nltk>=3.9.1",
     "pandas>=2.3.1",
+    "paramiko==2.11.0",
     "psutil>=7.0.0",
     "pydantic[email]>=2.11.7",
     "pyjwt>=2.10.1",
     "pymysql>=1.1.1",
     "python-dotenv>=1.1.1",
     "spacy>=3.8.7",
+    "sshtunnel>=0.4.0",
 ]
