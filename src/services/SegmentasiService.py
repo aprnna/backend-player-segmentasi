@@ -40,7 +40,74 @@ class SegmentationService(Service):
         if not data:
             return self.failedOrSuccessRequest('error', 404, {"message": "Ringkasan untuk Proses ID tersebut tidak ditemukan."})
         return self.failedOrSuccessRequest('success', 200, queryResultToDict(data))
-
+    def _generate_archetype_interpretations(self, characteristics_data, proses_id):
+        """
+        Menggunakan API untuk menghasilkan interpretasi kualitatif dari data 
+        karakteristik kuantitatif arketipe.
+        """
+        print("🤖 Menghubungi API untuk menghasilkan interpretasi arketipe...")
+        
+        try:
+            # 1. Buat topic mapping dari database
+            list_of_topics = topic_modeling_repository.getAllTopicModelingByProsesId(proses_id)
+            if not list_of_topics:
+                print("⚠️ Peringatan: Tidak ada topik yang ditemukan untuk Proses ID ini. Melewatkan interpretasi LLM.")
+                return []
+            
+            topic_mapping = {
+                str(t.Cluster): [kw.strip() for kw in t.Keyword.split(',')][:3] for t in list_of_topics
+            }
+            
+            # 2. Siapkan payload untuk API
+            api_payload = {
+                "characteristics_data": characteristics_data,
+                "topic_mapping": topic_mapping
+            }
+            
+            # 3. Tentukan URL API - sesuaikan dengan konfigurasi Anda
+            # Bisa dari environment variable atau hardcode untuk testing
+            API_BASE_URL = os.getenv('ARCHETYPE_API_URL', 'http://localhost:5000')
+            api_endpoint = f"{API_BASE_URL}/api/archetype/interpret"
+            
+            print(f"🌐 Mengirim request ke: {api_endpoint}")
+            
+            # 4. Kirim request ke API
+            headers = {
+                "Content-Type": "application/json"
+            }
+            
+            response = requests.post(
+                api_endpoint, 
+                headers=headers, 
+                json=api_payload, 
+                timeout=60
+            )
+            
+            # 5. Handle response
+            response.raise_for_status()
+            result = response.json()
+            
+            if result.get("success"):
+                print("✅ Interpretasi berhasil dibuat melalui API.")
+                return result.get("data", [])
+            else:
+                print(f"⚠️ API mengembalikan error: {result.get('error', 'Unknown error')}")
+                # Fallback ke data kosong jika API gagal
+                return result.get("data", [])
+                
+        except requests.exceptions.ConnectionError as e:
+            print(f"❌ Gagal terhubung ke API interpretasi arketipe: {e}")
+            print("💡 Pastikan API server berjalan di URL yang benar")
+            return []
+        except requests.exceptions.Timeout as e:
+            print(f"❌ Timeout saat menghubungi API interpretasi arketipe: {e}")
+            return []
+        except requests.exceptions.RequestException as e:
+            print(f"❌ Error saat menghubungi API interpretasi arketipe: {e}")
+            return []
+        except Exception as e:
+            print(f"❌ Unexpected error saat menghubungi API: {e}")
+            return []
     def _generate_archetype_interpretations_with_llm(self, characteristics_data, proses_id):
         """
         Menggunakan LLM untuk menghasilkan interpretasi kualitatif dari data 
@@ -356,7 +423,7 @@ class SegmentationService(Service):
             max_len = max(len(v) for v in membership.values()); [v.extend([np.nan] * (max_len - len(v))) for v in membership.values()]
 
             karakteristik = self._calculate_all_archetype_characteristics(df_segmentation_result.reset_index(), genre_map_df)
-            interpretasi = self._generate_archetype_interpretations_with_llm(karakteristik, proses_id)
+            interpretasi = self._generate_archetype_interpretations(karakteristik, proses_id)
 
             df_players.to_csv(players_data_path, index=False)
             pd.DataFrame(membership).to_csv(membership_csv_path, index=False)

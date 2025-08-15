@@ -5,6 +5,7 @@ BASE_URL = env["BASE_URL"] or "http://localhost"
 PORT = env["PORT"] or 5000
 DEBUG = env["DEBUG"] or True
 GROQ_API_KEY = env["GROQ_API_KEY"] or "your_groq_api_key_here"
+ARCHETYPE_API_URL = env["ARCHETYPE_API_URL"] or "http://localhost:5000"
 
 DATABASE_URL = env["DATABASE_URL"] or "mysql://root:root@localhost:3306/payer-segmentasi"
 
