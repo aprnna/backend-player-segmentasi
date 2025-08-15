@@ -6,7 +6,7 @@ PORT = env["PORT"] or 5000
 DEBUG = env["DEBUG"] or True
 GROQ_API_KEY = env["GROQ_API_KEY"] or "your_groq_api_key_here"
 
-# DATABASE_URL = env["DATABASE_URL"] or "mysql://root:root@localhost:3306/se_ticket"
+DATABASE_URL = env["DATABASE_URL"] or "mysql://root:root@localhost:3306/payer-segmentasi"
 
 JWT_ACCESS_TOKEN_EXPIRES = env["JWT_ACCESS_TOKEN_EXPIRES"] or 60 * 60 * 24 * 7
 JWT_ACCESS_TOKEN_SECRET = env["JWT_ACCESS_TOKEN_SECRET"] or "secret"
