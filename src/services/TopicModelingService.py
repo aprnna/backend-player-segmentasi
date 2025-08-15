@@ -554,7 +554,7 @@ class TopicModelingService(Service):
                     reviews = get_game_reviews(steam_id_scrapping)
                     if reviews:
                         scrapingService.createNewScrapping(reviews)
-                        for review in reviews[:50]:  # Limit scraping results
+                        for review in reviews:  # Limit scraping results
                             results.append(review)
             
             print(f"Total reviews yang akan dianalisis: {len(results)}")
@@ -677,7 +677,7 @@ class TopicModelingService(Service):
                 gc.collect()
             
             # Cache results
-            self._cache_results(results, cache_key)
+            # self._cache_results(results, cache_key)
             
             self.logger.info("✅ Topic modeling completed successfully")
             return self.failedOrSuccessRequest('success', 201, results)
