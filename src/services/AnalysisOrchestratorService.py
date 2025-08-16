@@ -9,7 +9,7 @@ from src.repositories.SteamIDProsesRepository import SteamIDProsesRepository
 import json
 import pandas as pd
 import os
-from src.utils.uploadFIle import upload_file
+from src.utils.uploadFIle import upload_file, delete_file
 topic_modeling_service = TopicModelingService()
 segmentation_service = SegmentationService()
 steam_id_proses_repository = SteamIDProsesRepository()
@@ -94,35 +94,33 @@ class AnalysisOrchestratorService(Service):
         """
         # cek apkah ada file jika ada ambil semua data colom steam_id dan append ke list steam_ids
         # Perbaikan: Cek apakah ada file dengan nama 'file' di request.files
-        if 'file' in files and files['file'].filename != '':
-            uploaded_file = files['file']
-            
-            # Validasi tipe file
-            if uploaded_file.content_type not in ['text/csv', 'application/vnd.ms-excel']:
-                return self.failedOrSuccessRequest('failed', 400, 'File harus berformat CSV')
-            # Proses file CSV
+        if "file" in files and files["file"] is not None:
+            csv_path = files["file"]
             try:
-                csv_path = upload_file(uploaded_file)
                 df = pd.read_csv(csv_path)
-                print(f"📂 File CSV diunggah: {csv_path}")
-                
-                # Validasi kolom steamid
-                if 'steamid' not in df.columns:
-                    return self.failedOrSuccessRequest('failed', 400, 'File CSV harus memiliki kolom "steamid"')
-                
-                # Tambahkan steam_ids dari CSV
-                csv_steam_ids = df['steamid'].dropna().astype(str).tolist()
+                print(f"✅ Loaded file, shape={df.shape}")
+                print(df)
+                if df.empty:
+                    delete_file(csv_path)
+                    return self.failedOrSuccessRequest("failed", 400, "File CSV kosong")
+
+                if "steamid" not in df.columns:
+                    delete_file(csv_path)
+                    return self.failedOrSuccessRequest("failed", 400, "File CSV harus memiliki kolom 'steamid'")
+
+                csv_steam_ids = df["steamid"].dropna().astype(str).tolist()
+                if not csv_steam_ids:
+                    delete_file(csv_path)
+                    return self.failedOrSuccessRequest("failed", 400, "Kolom steamid kosong")
+
                 steam_ids.extend(csv_steam_ids)
-                steam_ids = list(set(steam_ids))  # Hapus duplikat
-                
+                steam_ids = list(set(steam_ids))  # hapus duplikat
             except Exception as e:
-                print(f"❌ Error memproses file CSV: {str(e)}")
-                return self.failedOrSuccessRequest('failed', 500, f'Error memproses file: {str(e)}')
-        
-        # Validasi minimal ada steam_ids
+                return self.failedOrSuccessRequest("failed", 500, f"Error membaca file CSV: {e}")
+
         if not steam_ids:
-            return self.failedOrSuccessRequest('failed', 400, 'Tidak ada Steam ID yang valid ditemukan')
-        
+            return self.failedOrSuccessRequest("failed", 400, "Tidak ada Steam ID yang valid")
+
         print(f"🎮 Total Steam IDs untuk dianalisis: {len(steam_ids)}")
         proses_catatan = None
         try:

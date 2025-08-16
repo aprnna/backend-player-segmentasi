@@ -4,7 +4,7 @@ from src.config.database import generateDatabase
 class SteamIDProses(db.Model):
     __tablename__ = 'steam_id_proses'
     Proses_id = db.Column(db.Integer, primary_key=True)
-    Steam_id = db.Column(db.String(255))
+    Steam_id = db.Column(db.Text)
     User_id = db.Column(db.Integer, db.ForeignKey('users.user_id'))
     
     segmentasi_entries = db.relationship('Segmentasi', backref='proses', lazy=True)

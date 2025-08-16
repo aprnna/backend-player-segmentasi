@@ -542,8 +542,7 @@ class TopicModelingService(Service):
                             steam_id_scrapping.append(steam_id)
                         else:
                             reviews = getReviewsScrapping.get('data', [])
-                            # Limit reviews per game untuk VPS 1GB
-                            for review in reviews[:30]:  # Max 30 reviews per game
+                            for review in reviews:  # Max 30 reviews per game
                                 results.append(review)
                     gc.collect()
             
@@ -558,12 +557,13 @@ class TopicModelingService(Service):
                             results.append(review)
             
             print(f"Total reviews yang akan dianalisis: {len(results)}")
-            
+            if len(results) == 0:
+                self.logger.warning("⚠️ Tidak ada review yang ditemukan untuk dianalisis")
             # Limit total reviews untuk VPS 1GB
-            MAX_REVIEWS = 150  # Reduced limit untuk VPS 1GB
-            if len(results) > MAX_REVIEWS:
-                results = results[:MAX_REVIEWS]
-                self.logger.warning(f"⚠️ Limited to {MAX_REVIEWS} reviews due to memory constraints")
+            # MAX_REVIEWS = 150  # Reduced limit untuk VPS 1GB
+            # if len(results) > MAX_REVIEWS:
+            #     results = results[:MAX_REVIEWS]
+            #     self.logger.warning(f"⚠️ Limited to {MAX_REVIEWS} reviews due to memory constraints")
             
             if not results:
                 return self.failedOrSuccessRequest('success', 200, 
@@ -594,7 +594,7 @@ class TopicModelingService(Service):
             
             try:
                 # Process dalam batch sangat kecil untuk VPS 1GB
-                BATCH_SIZE = 10  # Sangat kecil untuk VPS 1GB
+                BATCH_SIZE = 50  # Sangat kecil untuk VPS 1GB
                 for i in range(0, len(cleaned_reviews), BATCH_SIZE):
                     batch = cleaned_reviews[i:i+BATCH_SIZE]
                     
@@ -648,7 +648,7 @@ class TopicModelingService(Service):
                         continue
                     
                     # Limit keywords untuk save memory
-                    all_keywords = [word for word, score in topic_info[:5]]  # Only top 5
+                    all_keywords = [word for word, score in topic_info]
                     results.append({
                         'topic_id': int(topic_id),
                         'keywords': all_keywords,

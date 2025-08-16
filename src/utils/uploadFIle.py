@@ -9,8 +9,9 @@ def upload_file(file):
     if file:
         timestamp = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
         filename = f"{timestamp}-{file.filename}"
-        file.save(os.path.join(UPLOAD_FOLDER, filename))
-        return f"{UPLOAD_PATH}{filename}"
+        abs_path = os.path.join(UPLOAD_FOLDER, filename)
+        file.save(abs_path)
+        return abs_path  # ⬅️ selalu kembalikan absolute path
     return False
 
 def delete_file(file_path):

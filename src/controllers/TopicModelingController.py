@@ -12,27 +12,132 @@ import io
 import pandas as pd
 import numpy as np
 from src.middlewares.AuthMiddleware import isAuthenticated
-
+import uuid
+import threading
+import time
+from datetime import datetime, timedelta
+from src.utils.uploadFIle import upload_file, delete_file
 AnalyzeApp = Blueprint('AnalyzeApp', __name__,)
 scrappingService = ScrappingService()
 topicModelingService = TopicModelingService()
 segmentationService = SegmentationService()
 analysisOrchestratorService = AnalysisOrchestratorService()
 
-# --- Endpoint untuk Analisis Lengkap ---
-@AnalyzeApp.route('/full_steam_id', methods=['POST'])
+from flask import current_app
+import threading
+import uuid
+from datetime import datetime
+
+# In-memory job storage
+job_status = {}
+
+@AnalyzeApp.route('/full_steam', methods=['POST'])
 @isAuthenticated
-def analyze_steam_data_full_pipeline():
-    steam_ids = []
-    if request.form.get('steam_ids'):
-        steam_ids = request.form['steam_ids'].split(", ")
+def analyze_with_threading():
+    try:
+        steam_ids = []
+        if request.form.get('steam_ids'):
+            steam_ids = request.form['steam_ids'].split(", ")
+        
+        # Generate job ID
+        job_id = str(uuid.uuid4())
+        
+        # Initialize job status
+        job_status[job_id] = {
+            'status': 'started',
+            'progress': 0,
+            'message': 'Analysis started',
+            'created_at': datetime.now(),
+            'result': None,
+            'error': None
+        }
+        
+        # Get Flask app context
+        app = current_app._get_current_object()  # 🔑 Key line
+        files_dict = {}
+        
+        # Handle file upload properly
+        if "file" in request.files and request.files["file"].filename != "":
+            uploaded_file = request.files["file"]
+            csv_path = upload_file(uploaded_file)
+            if not csv_path:
+                return jsonify({"status": "failed", "message": "Gagal upload file"}), 400
+            files_dict["file"] = csv_path  # Store only the file path
+        else:
+            files_dict["file"] = None  
+        # Start background thread with app context
+        print(f"🔄 Starting analysis for job: {files_dict}")
+        thread = threading.Thread(
+            target=run_analysis_with_context,
+            args=(app, job_id, steam_ids, files_dict, g.user['user_id'])
+        )
+        thread.daemon = True  # Dies when main thread dies
+        thread.start()
+        
+        return Response.success({
+            'job_id': job_id,
+            'status': 'processing',
+            'message': 'Analysis started in background',
+            'check_url': f'/analyze/status/{job_id}'
+        }, "Threading analysis started successfully")
+        
+    except Exception as e:
+        return Response.error(f"Failed to start analysis: {str(e)}", 500)
+
+def run_analysis_with_context(app, job_id, steam_ids, files_dict, user_id):
+    """Background function dengan proper Flask app context"""
+    with app.app_context():  # 🔑 Critical: Setup app context
+        try:
+            print(f"🔄 Starting threaded analysis for job: {job_id}")
+            
+            # Update progress
+            job_status[job_id].update({
+                'status': 'processing',
+                'progress': 10,
+                'message': 'Initializing analysis...'
+            })
+            
+            # Initialize service (now has app context)
+            from src.services.AnalysisOrchestratorService import AnalysisOrchestratorService
+            analysisOrchestratorService = AnalysisOrchestratorService()
+            
+ 
+
+            # Run analysis (this now works because of app context)
+            result = analysisOrchestratorService.run_full_analysis_pipeline(
+                steam_ids, files_dict, user_id  # Files handling might need adjustment
+            )
+            
+            if result.get('status') == 'success':
+                job_status[job_id].update({
+                    'status': 'completed',
+                    'progress': 100,
+                    'message': 'Analysis completed successfully',
+                    'result': result.get('data')
+                })
+            else:
+                job_status[job_id].update({
+                    'status': 'failed',
+                    'error': result.get('data'),
+                    'message': f'Analysis failed: {result.get("message")}'
+                })
+                
+        except Exception as e:
+            job_status[job_id].update({
+                'status': 'failed',
+                'error': str(e),
+                'message': f'Analysis failed: {str(e)}'
+            })
+            print(f"❌ Threading analysis error: {e}")
+
+@AnalyzeApp.route('/status/<job_id>', methods=['GET'])
+@isAuthenticated
+def check_thread_status(job_id):
+    """Check threading job status"""
+    if job_id not in job_status:
+        return Response.error("Job not found", 404)
     
-    result = analysisOrchestratorService.run_full_analysis_pipeline(steam_ids, request.files, g.user['user_id'])
-    
-    if result.get('status') == 'success':
-        return Response.success(result.get('data'), "Analisis lengkap berhasil dijalankan.")
-    else:
-        return Response.error(result.get('data'), result.get('code', 500))
+    return Response.success(job_status[job_id], "Job status retrieved")
 
 
 @AnalyzeApp.route('/test', methods=['GET'])
@@ -102,73 +207,3 @@ def analyze_steam_reviews():
         return Response.error({'error': 'Invalid input. Please provide a list of Steam IDs.'}), 400
     result = topicModelingService.createNewTopicModeling(steam_ids, g.user['user_id'])
     return Response.success(result, "success analyze steam reviews")
-
-@AnalyzeApp.route('/steam_reviews', methods=['POST'])
-def upload_and_analyze():
-    topic_model = LoadModel()
-    # 1. Cek apakah model sudah dimuat
-    if topic_model is None:
-        return jsonify({'error': 'Model is not available. Please check the server logs.'}), 503
-
-    # 2. Cek apakah ada file yang diunggah
-    if 'file' not in request.files:
-        return jsonify({'error': 'No file part in the request.'}), 400
-
-    file = request.files['file']
-
-    if file.filename == '':
-        return jsonify({'error': 'No selected file.'}), 400
-
-    # 3. Proses file jika formatnya CSV
-    if file and file.filename.endswith('.csv'):
-        try:
-            # Baca file CSV langsung ke pandas DataFrame
-            file_stream = io.StringIO(file.stream.read().decode("utf-8"))
-            df = pd.read_csv(file_stream)
-            df.to_csv('uploaded_reviews.csv', index=False)  # Simpan file yang diunggah
-            # Validasi kolom 'Review'
-            if 'Review' not in df.columns:
-                return jsonify({'error': "File must contain a 'Review' column."}), 400
-                
-            # Handle NaN values
-            reviews_df = df.dropna(subset=['Review'])
-            raw_reviews = reviews_df['Review'].tolist()
-
-            if not raw_reviews:
-                return jsonify({'message': 'No valid reviews found in the file.'}), 404
-
-            # 4. Preprocessing dan Topic Modeling
-            print(f"⚙️ Memproses {len(raw_reviews)} review dari file yang diunggah...")
-            cleaned_reviews = [preprocess_single_text(review) for review in raw_reviews]
-            pd.Series(cleaned_reviews).to_csv('cleaned_reviews.csv', index=False)  # Simpan cleaned reviews
-            topics, probabilities = topic_model.transform(cleaned_reviews)
-
-            # 5. Susun hasil akhir
-            results = []
-            for topic_id in sorted(list(set(topics))):
-                if topic_id == -1: continue # Abaikan outlier
-
-                topic_info = topic_model.get_topic(topic_id)
-                topic_keywords = [word for word, score in topic_info]
-
-                # Ambil contoh review dari file yang diunggah
-                sample_reviews_for_topic = reviews_df[topics == topic_id].head(3).to_dict('records')
-
-                results.append({
-                    'topic_id': int(topic_id),
-                    'keywords': topic_keywords,
-                    'number_of_reviews': topics.tolist().count(topic_id),
-                    'sample_reviews_data': [
-                        {'Game': r.get('Game', 'N/A'), 'Review': r.get('Review', 'N/A')}
-                        for r in sample_reviews_for_topic
-                    ]
-                })
-
-            return jsonify({'topics': results})
-
-        except Exception as e:
-            return jsonify({'error': f'An unexpected error occurred: {str(e)}'}), 500
-    else:
-        return jsonify({'error': 'Invalid file type. Please upload a CSV file.'}), 400
-
-

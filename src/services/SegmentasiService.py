@@ -395,8 +395,12 @@ class SegmentationService(Service):
 
             Ks = range(2, 11)
             errors = [np.linalg.norm(X - compute_archetypes(X, K)[0].dot(compute_archetypes(X, K)[1]), 'fro') for K in Ks]
-            kl = KneeLocator(Ks, errors, curve='convex', direction='decreasing')
-            best_K = kl.elbow or Ks[np.argmin(errors)]
+            if np.allclose(errors, errors[0]):
+                # Semua error sama → data terlalu mirip / jumlah fitur terlalu kecil
+                best_K = 2  # default
+            else:
+                kl = KneeLocator(Ks, errors, curve='convex', direction='decreasing')
+                best_K = kl.elbow or Ks[np.argmin(errors)]
             print(f"-> Jumlah segmen (K) optimal yang ditemukan: {best_K}")
             A_final, Z_final = compute_archetypes(X, best_K)
 
