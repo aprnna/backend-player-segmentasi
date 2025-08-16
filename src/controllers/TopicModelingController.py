@@ -17,6 +17,8 @@ import threading
 import time
 from datetime import datetime, timedelta
 from src.utils.uploadFIle import upload_file, delete_file
+from src.utils.job_manager import job_status, stop_flags, job_threads
+
 AnalyzeApp = Blueprint('AnalyzeApp', __name__,)
 scrappingService = ScrappingService()
 topicModelingService = TopicModelingService()
@@ -28,10 +30,7 @@ import threading
 import uuid
 from datetime import datetime
 
-# In-memory job storage
-job_status = {}
-job_threads = {}  # Track active threads
-stop_flags = {}  
+
 
 @AnalyzeApp.route('/full_steam', methods=['POST'])
 @isAuthenticated
@@ -110,7 +109,7 @@ def run_analysis_with_context(app, job_id, steam_ids, files_dict, user_id):
             
             # Run analysis (this now works because of app context)
             result = analysisOrchestratorService.run_full_analysis_pipeline(
-                steam_ids, files_dict, user_id  # Files handling might need adjustment
+                steam_ids, files_dict, user_id, job_id  # Files handling might need adjustment
             )
             
             if result.get('status') == 'success':

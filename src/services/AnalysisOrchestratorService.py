@@ -10,6 +10,9 @@ import json
 import pandas as pd
 import os
 from src.utils.uploadFIle import upload_file, delete_file
+from src.utils.job_manager import job_status
+from src.server.main import db
+
 topic_modeling_service = TopicModelingService()
 segmentation_service = SegmentationService()
 steam_id_proses_repository = SteamIDProsesRepository()
@@ -87,13 +90,19 @@ class AnalysisOrchestratorService(Service):
             return self.failedOrSuccessRequest('failed', 500, {"message": f"Terjadi kesalahan internal: {str(e)}"})
     
 
-    def run_full_analysis_pipeline(self, steam_ids, files,user_id):
+    def run_full_analysis_pipeline(self, steam_ids, files,user_id, job_id):
         """
         Menjalankan seluruh pipeline analisis dari Topic Modeling hingga Segmentasi
         untuk satu ID Proses.
         """
         # cek apkah ada file jika ada ambil semua data colom steam_id dan append ke list steam_ids
         # Perbaikan: Cek apakah ada file dengan nama 'file' di request.files
+        job_status[job_id].update({
+                'status': 'processing',
+                'progress': 15,
+                'message': "loading data...."
+            })
+            
         if "file" in files and files["file"] is not None:
             csv_path = files["file"]
             try:
@@ -120,7 +129,11 @@ class AnalysisOrchestratorService(Service):
 
         if not steam_ids:
             return self.failedOrSuccessRequest("failed", 400, "Tidak ada Steam ID yang valid")
-
+        job_status[job_id].update({
+            'status': 'processing',
+            'progress': 20,
+            'message': f'Success load {len(steam_ids)} Steam IDs'
+        })
         print(f"🎮 Total Steam IDs untuk dianalisis: {len(steam_ids)}")
         proses_catatan = None
         try:
@@ -145,11 +158,17 @@ class AnalysisOrchestratorService(Service):
             print("\n--- [MEMULAI SUB-PROSES: TOPIC MODELING] ---")
             # Panggil logika inti dari TopicModelingService
             # Catatan: Kita refaktor sedikit agar bisa dipanggil dari sini
+            job_status[job_id].update({
+                'status': 'processing',
+                'progress': 25,
+                'message': 'Running Topic Modeling...'
+            })
             topic_modeling_result = topic_modeling_service.createNewTopicModeling(
                 steam_ids=steam_ids, 
                 userId=user_id, 
                 steam_proses_obj=proses_catatan,
-                unique_process_dir=unique_process_dir
+                unique_process_dir=unique_process_dir,
+                job_id=job_id
             )
 
             if topic_modeling_result.get('status') == 'failed':
@@ -163,11 +182,17 @@ class AnalysisOrchestratorService(Service):
             # ==========================================================
             print("\n--- [MEMULAI SUB-PROSES: SEGMENTASI] ---")
             # Panggil logika inti dari SegmentationService
+            job_status[job_id].update({
+                'status': 'processing',
+                'progress': 70,
+                'message': 'Running Segmentasi...'
+            })
             segmentation_result = segmentation_service.run_segmentation_pipeline(
                 steam_ids=steam_ids, 
                 user_id=user_id, 
                 steam_proses_obj=proses_catatan,
-                unique_process_dir=unique_process_dir
+                unique_process_dir=unique_process_dir,
+                job_id=job_id
             )
             if segmentation_result.get('status') == 'failed':
                 # Jika segmentasi gagal, hentikan proses
@@ -185,10 +210,10 @@ class AnalysisOrchestratorService(Service):
                 "topic_modeling_summary": topic_modeling_result.get('data'),
                 "segmentation_summary": segmentation_result.get('data')
             })
-
         except Exception as e:
             import traceback
             traceback.print_exc()
+            db.session.rollback()
             error_message = f"Terjadi kesalahan pada pipeline gabungan: {str(e)}"
             print(f"❌ {error_message}")
             return self.failedOrSuccessRequest('failed', 500, {"message": error_message})

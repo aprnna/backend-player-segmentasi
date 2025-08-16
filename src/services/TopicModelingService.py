@@ -13,6 +13,7 @@ from bertopic import BERTopic
 import pandas as pd
 from sklearn.preprocessing import normalize
 import numpy as np
+from src.utils.job_manager import job_status
 
 import threading
 import os
@@ -484,7 +485,7 @@ class TopicModelingService(Service):
                 gc.collect()
                 raise e
 
-    def createNewTopicModeling(self, steam_ids, userId, steam_proses_obj, unique_process_dir):
+    def createNewTopicModeling(self, steam_ids, userId, steam_proses_obj, unique_process_dir, job_id):
         """Main method dengan optimasi extreme untuk VPS 1GB - Complete Implementation"""
         
         # Pre-flight check
@@ -511,7 +512,7 @@ class TopicModelingService(Service):
             topic_modeling_repository = TopicModelingRepository()
             
             # Generate cache key berdasarkan steam_ids
-            cache_key = hashlib.md5(','.join(sorted(steam_ids)).encode()).hexdigest()           
+            # cache_key = hashlib.md5(','.join(sorted(steam_ids)).encode()).hexdigest()           
             
             # Cek cache terlebih dahulu
             # cached_results = self._load_cached_results(cache_key)
@@ -529,10 +530,14 @@ class TopicModelingService(Service):
             self.logger.info("🔍 Starting review collection...")
             results = []
             steam_id_scrapping = []
-            
+            job_status[job_id].update({
+                'status': 'processing',
+                'progress': 30,
+                'message': "Collecting reviews..."
+            })
             # Process steam_ids in smaller groups untuk avoid memory spike
-            steam_id_batches = [steam_ids[i:i+2] for i in range(0, len(steam_ids), 2)]
-            
+            steam_id_batches = [steam_ids[i:i+5] for i in range(0, len(steam_ids), 5)]
+
             for batch_steam_ids in steam_id_batches:
                 with self.memory_guard("scraping_batch"):
                     for steam_id in batch_steam_ids:
@@ -569,6 +574,11 @@ class TopicModelingService(Service):
                 return self.failedOrSuccessRequest('success', 200, 
                     {'message': 'Tidak ada review yang ditemukan.'})
             
+            job_status[job_id].update({
+                'status': 'processing',
+                'progress': 40,
+                'message': "Preprocessing reviews..."
+            })
             # 4. Preprocessing dengan memory management
             with self.memory_guard("preprocessing"):
                 reviews_df = pd.DataFrame(results)
@@ -587,14 +597,18 @@ class TopicModelingService(Service):
             
             # 5. Topic modeling dengan ultra-batch processing
             print(f"⚙️ Membuat embedding untuk {len(cleaned_reviews)} review baru...")
-            
+            job_status[job_id].update({
+                'status': 'processing',
+                'progress': 45,
+                'message': "Creating embeddings..."
+            })  
+
             model = self._load_model_on_demand()
             all_topics = []
             all_embeddings = []
             
             try:
-                # Process dalam batch sangat kecil untuk VPS 1GB
-                BATCH_SIZE = 50  # Sangat kecil untuk VPS 1GB
+                BATCH_SIZE = 50  
                 for i in range(0, len(cleaned_reviews), BATCH_SIZE):
                     batch = cleaned_reviews[i:i+BATCH_SIZE]
                     
@@ -620,6 +634,11 @@ class TopicModelingService(Service):
                 reviews_df['topics'] = all_topics
                 reviews_df['embedding'] = all_embeddings
                 
+                job_status[job_id].update({
+                    'status': 'processing',
+                    'progress': 55,
+                    'message': "Calculating dominant topics..."
+                })
                 # 7. Hitung topik dominan per game
                 print("\n📊 Memulai proses perhitungan topik dominan per game...")
                 dominant_topic_df = self._calculate_dominant_topic_per_game(reviews_df)
@@ -678,7 +697,12 @@ class TopicModelingService(Service):
             
             # Cache results
             # self._cache_results(results, cache_key)
-            
+            job_status[job_id].update({
+                'status': 'processing',
+                'progress': 65,
+                'message': "Topic modeling completed successfully."
+            })
+
             self.logger.info("✅ Topic modeling completed successfully")
             return self.failedOrSuccessRequest('success', 201, results)
             

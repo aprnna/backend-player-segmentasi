@@ -21,6 +21,7 @@ from difflib import SequenceMatcher
 from collections import Counter
 import requests
 import ast
+from src.utils.job_manager import job_status
 from src.config.config import GROQ_API_KEY
 
 segmentasiRepository = SegmentasiRepository()
@@ -230,64 +231,172 @@ class SegmentationService(Service):
         
     def _calculate_all_archetype_characteristics(self, df_segmentation, df_genre_map):
         all_archetype_profiles = []
-        # Balikkan peta genre menjadi kode -> nama
+        
+        # Buat kedua mapping: code->name DAN name->code
         genre_code_to_name = pd.Series(df_genre_map.genre.values, index=df_genre_map.GenreCode).to_dict()
+        genre_name_to_code = pd.Series(df_genre_map.GenreCode.values, index=df_genre_map.genre).to_dict()
 
         for archetype_id in sorted(df_segmentation['dominant_archetype'].unique()):
             df_archetype = df_segmentation[df_segmentation['dominant_archetype'] == archetype_id]
-            if df_archetype.empty: continue
-        try:
-            avg_games = df_archetype['Total_Games'].mean()
-            avg_playtime = df_archetype['Avg_Playtime'].mean()
-            total_achievements = df_archetype['Total_Achievements'].sum()
-            dominant_topic_id = df_archetype['Dominant_Topic_User'].mode()[0]
-            
-            topic_info_list = topic_modeling_repository.getTopicByClusterId(int(dominant_topic_id))
-            print(topic_info_list)
-            dominant_topic_obj = {"id": int(dominant_topic_id), "keywords": []}
-            print(dominant_topic_obj)
-            # Periksa apakah list tidak kosong
-            if topic_info_list:
-                topic_info = topic_info_list[0] 
-                if topic_info and hasattr(topic_info, 'Keyword') and topic_info.Keyword:
-                    dominant_topic_obj["keywords"] = [kw.strip() for kw in topic_info.Keyword.split(',')]
+            if df_archetype.empty: 
+                continue
+                
+            try:
+                avg_games = df_archetype['Total_Games'].mean()
+                avg_playtime = df_archetype['Avg_Playtime'].mean()
+                total_achievements = df_archetype['Total_Achievements'].sum()
+                dominant_topic_id = df_archetype['Dominant_Topic_User'].mode()[0]
+                
+                topic_info_list = topic_modeling_repository.getTopicByClusterId(int(dominant_topic_id))
+                dominant_topic_obj = {"id": int(dominant_topic_id), "keywords": []}
+                
+                if topic_info_list:
+                    topic_info = topic_info_list[0] 
+                    if topic_info and hasattr(topic_info, 'Keyword') and topic_info.Keyword:
+                        dominant_topic_obj["keywords"] = [kw.strip() for kw in topic_info.Keyword.split(',')]
 
+                if isinstance(df_archetype['Top_3_Genres'].iloc[0], str):
+                    top_3_genres_lists = df_archetype['Top_3_Genres'].apply(ast.literal_eval)
+                else:
+                    top_3_genres_lists = df_archetype['Top_3_Genres']
 
-            if isinstance(df_archetype['Top_3_Genres'].iloc[0], str):
-                top_3_genres_lists = df_archetype['Top_3_Genres'].apply(ast.literal_eval)
-            else:
-                top_3_genres_lists = df_archetype['Top_3_Genres']
+                all_genres = [g for sublist in top_3_genres_lists for g in sublist]
+                
+                # FIX: Deteksi apakah all_genres berisi nama atau kode
+                if all_genres and isinstance(all_genres[0], str):
+                    # all_genres berisi nama genre, langsung ambil top 3
+                    top_3_genre_names = [genre for genre, count in Counter(all_genres).most_common(3)]
+                else:
+                    # all_genres berisi kode genre, convert ke nama
+                    top_3_genre_codes = [code for code, count in Counter(all_genres).most_common(3)]
+                    top_3_genre_names = [genre_code_to_name.get(code, "Unknown") for code in top_3_genre_codes]
 
-            all_genres = [g for sublist in top_3_genres_lists for g in sublist]
-            top_3_genre_codes = [code for code, count in Counter(all_genres).most_common(3)]
-            top_3_genre_names = [genre_code_to_name.get(code, "Unknown") for code in top_3_genre_codes]
-
-            profile = {
-                "archetype_id": int(archetype_id),
-                "average_game_owned": round(avg_games, 2),
-                "average_playtime": round(avg_playtime, 2),
-                "average_achievement": int(total_achievements / len(df_archetype)), # Rata-rata achievement
-                "dominant_topic": dominant_topic_obj,
-                "top_3_genres": top_3_genre_names
-            }
-            all_archetype_profiles.append(profile)
-        except Exception as e:
-            print(f"❌ Gagal memproses archetype {archetype_id}: {e}")
+                profile = {
+                    "archetype_id": int(archetype_id),
+                    "average_game_owned": round(avg_games, 2),
+                    "average_playtime": round(avg_playtime, 2),
+                    "average_achievement": int(total_achievements / len(df_archetype)),
+                    "dominant_topic": dominant_topic_obj,
+                    "top_3_genres": top_3_genre_names
+                }
+                all_archetype_profiles.append(profile)
+                
+            except Exception as e:
+                print(f"❌ Gagal memproses archetype {archetype_id}: {e}")
+                
         print(f"✅ Berhasil menghitung karakteristik untuk {len(all_archetype_profiles)} arketipe.")        
         return all_archetype_profiles
+    def _calculate_all_archetype_characteristics_debug(self, df_segmentation, df_genre_map):
+        all_archetype_profiles = []
+        
+        # DEBUG 1: Cek genre mapping
+        print("\n🔍 [DEBUG 1] Genre Mapping Info:")
+        print(f"df_genre_map shape: {df_genre_map.shape}")
+        print(f"df_genre_map columns: {df_genre_map.columns.tolist()}")
+        print(f"Sample df_genre_map:\n{df_genre_map.head()}")
+        
+        # Balikkan peta genre menjadi kode -> nama
+        genre_code_to_name = pd.Series(df_genre_map.genre.values, index=df_genre_map.GenreCode).to_dict()
+        
+        print(f"genre_code_to_name type: {type(genre_code_to_name)}")
+        print(f"genre_code_to_name sample (first 5): {dict(list(genre_code_to_name.items())[:5])}")
+        print(f"genre_code_to_name keys type: {type(list(genre_code_to_name.keys())[0]) if genre_code_to_name else 'Empty'}")
 
-    def run_segmentation_pipeline(self, steam_ids, user_id, steam_proses_obj, unique_process_dir):
+        for archetype_id in sorted(df_segmentation['dominant_archetype'].unique()):
+            print(f"\n🔍 [DEBUG 2] Processing Archetype {archetype_id}:")
+            
+            df_archetype = df_segmentation[df_segmentation['dominant_archetype'] == archetype_id]
+            if df_archetype.empty: 
+                print(f"❌ Archetype {archetype_id} is empty, skipping...")
+                continue
+                
+            try:
+                avg_games = df_archetype['Total_Games'].mean()
+                avg_playtime = df_archetype['Avg_Playtime'].mean()
+                total_achievements = df_archetype['Total_Achievements'].sum()
+                dominant_topic_id = df_archetype['Dominant_Topic_User'].mode()[0]
+                
+                # DEBUG 3: Cek Top_3_Genres data
+                print(f"Top_3_Genres column type: {type(df_archetype['Top_3_Genres'].iloc[0])}")
+                print(f"Top_3_Genres sample value: {df_archetype['Top_3_Genres'].iloc[0]}")
+                print(f"Top_3_Genres first 3 values:\n{df_archetype['Top_3_Genres'].head(3).tolist()}")
+                
+                topic_info_list = topic_modeling_repository.getTopicByClusterId(int(dominant_topic_id))
+                dominant_topic_obj = {"id": int(dominant_topic_id), "keywords": []}
+                
+                if topic_info_list:
+                    topic_info = topic_info_list[0] 
+                    if topic_info and hasattr(topic_info, 'Keyword') and topic_info.Keyword:
+                        dominant_topic_obj["keywords"] = [kw.strip() for kw in topic_info.Keyword.split(',')]
+
+                # DEBUG 4: Proses Top_3_Genres
+                if isinstance(df_archetype['Top_3_Genres'].iloc[0], str):
+                    print("🔍 Converting string to list using ast.literal_eval")
+                    top_3_genres_lists = df_archetype['Top_3_Genres'].apply(ast.literal_eval)
+                else:
+                    print("🔍 Using Top_3_Genres as is (already list)")
+                    top_3_genres_lists = df_archetype['Top_3_Genres']
+
+                print(f"top_3_genres_lists sample after conversion: {top_3_genres_lists.iloc[0] if len(top_3_genres_lists) > 0 else 'Empty'}")
+                print(f"top_3_genres_lists type: {type(top_3_genres_lists.iloc[0]) if len(top_3_genres_lists) > 0 else 'Empty'}")
+
+                # DEBUG 5: Flatten genres
+                all_genres = [g for sublist in top_3_genres_lists for g in sublist]
+                print(f"all_genres (flattened): {all_genres}")
+                print(f"all_genres sample items type: {type(all_genres[0]) if all_genres else 'Empty list'}")
+                print(f"all_genres length: {len(all_genres)}")
+                
+                # DEBUG 6: Counter dan most_common
+                genre_counter = Counter(all_genres)
+                print(f"genre_counter: {dict(genre_counter)}")
+                
+                top_3_genre_codes = [code for code, count in genre_counter.most_common(3)]
+                print(f"top_3_genre_codes: {top_3_genre_codes}")
+                print(f"top_3_genre_codes types: {[type(code) for code in top_3_genre_codes]}")
+                
+                # DEBUG 7: Lookup process
+                print(f"🔍 Lookup process:")
+                for i, code in enumerate(top_3_genre_codes):
+                    lookup_result = genre_code_to_name.get(code, "Unknown")
+                    print(f"  Code '{code}' (type: {type(code)}) -> '{lookup_result}'")
+                    print(f"  Code in mapping: {code in genre_code_to_name}")
+                    
+                top_3_genre_names = [genre_code_to_name.get(code, "Unknown") for code in top_3_genre_codes]
+                print(f"Final top_3_genre_names: {top_3_genre_names}")
+
+                profile = {
+                    "archetype_id": int(archetype_id),
+                    "average_game_owned": round(avg_games, 2),
+                    "average_playtime": round(avg_playtime, 2),
+                    "average_achievement": int(total_achievements / len(df_archetype)),
+                    "dominant_topic": dominant_topic_obj,
+                    "top_3_genres": top_3_genre_names
+                }
+                all_archetype_profiles.append(profile)
+                
+            except Exception as e:
+                print(f"❌ Gagal memproses archetype {archetype_id}: {e}")
+                import traceback
+                traceback.print_exc()
+                
+        print(f"✅ Berhasil menghitung karakteristik untuk {len(all_archetype_profiles)} arketipe.")        
+        return all_archetype_profiles
+    def run_segmentation_pipeline(self, steam_ids, user_id, steam_proses_obj, unique_process_dir, job_id):
         print("--- [PIPELINE SEGMENTASI DIMULAI] ---")
         try:
             # tidak perlu base_dir
             dominant_output_path = os.path.join(unique_process_dir, "dominant_topic_per_game.csv")
             proses_id = steam_proses_obj.Proses_id
-           
 
             # ======================================================================
             # LANGKAH 1 & 2: MEMUAT, MENGGABUNGKAN, DAN MEMBERSIHKAN DATA
             # ======================================================================
             print("\n[1-2/6] Memuat, menggabungkan, dan membersihkan data...")
+            job_status[job_id].update({
+                'status': 'processing',
+                'progress': 75,
+                'message': "Loading and cleaning data..."
+            })
             # --- KODE BARU YANG SUDAH DIPERBAIKI ---
             player_data = []
             for steam_id in steam_ids:
@@ -339,6 +448,11 @@ class SegmentationService(Service):
             # LANGKAH 3: PEMBUATAN PROFIL PEMAIN
             # ======================================================================
             print("\n[3/6] Membuat profil pemain...")
+            job_status[job_id].update({
+                'status': 'processing',
+                'progress': 80,
+                'message': "Creating player profiles..."
+            })
             all_genres_flat = [genre.strip() for genres in df_final['genres'] for genre in str(genres).split(',') if genre.strip()]
             unique_genres = sorted(list(set(all_genres_flat)))
             genre_to_code = {genre: i for i, genre in enumerate(unique_genres)}
@@ -355,6 +469,11 @@ class SegmentationService(Service):
             # LANGKAH 4: FEATURE ENGINEERING
             # ======================================================================
             print("\n[4/6] Membangun matriks fitur...")
+            job_status[job_id].update({
+                'status': 'processing',
+                'progress': 80,
+                'message': "Building feature matrix..."
+            })
             df_features = df_profile[['steam_id', 'Total_Games', 'Avg_Playtime', 'Total_Achievements']].set_index('steam_id')
             topic_proportions = df_final.groupby(['steam_id', 'dominant_topic']).size().unstack(fill_value=0)
             topic_proportions = topic_proportions.div(topic_proportions.sum(axis=1), axis=0).add_prefix('topic_prop_')
@@ -377,6 +496,11 @@ class SegmentationService(Service):
             # LANGKAH 5: ANALISIS ARKETIPE (AA)
             # ======================================================================
             print("\n[5/6] Menjalankan Analisis Arketipe...")
+            job_status[job_id].update({
+                'status': 'processing',
+                'progress': 80,
+                'message': "Running archetype analysis..."
+            })
             X = df_features_scaled.values
             def compute_archetypes(X, K, max_iter=100, tol=1e-4):
                 n, d = X.shape
@@ -403,9 +527,9 @@ class SegmentationService(Service):
                 best_K = kl.elbow or Ks[np.argmin(errors)]
             print(f"-> Jumlah segmen (K) optimal yang ditemukan: {best_K}")
             A_final, Z_final = compute_archetypes(X, best_K)
-
+    
             # ======================================================================
-            # LANGKAH 6: MENYIMPAN DAN VISUALISASI HASIL
+            # LANGKAH 6: MENYIMPAN 
             # ======================================================================
             players_data_path = os.path.join(unique_process_dir, "players_data.csv")
             genre_map_path = os.path.join(unique_process_dir, "hasil_peta_genre.csv")
@@ -415,7 +539,12 @@ class SegmentationService(Service):
             interpretasi_json_path = os.path.join(unique_process_dir, 'interpretasi_arketipe.json')
 
 
-            print("\n[6/6] Menyimpan dan visualisasi hasil...")
+            print("\n[6/6] Menyimpan hasil...")
+            job_status[job_id].update({
+                'status': 'processing',
+                'progress': 90,
+                'message': "Saving  results..."
+            })
             df_segmentation_result = df_profile.set_index('steam_id')
             for k in range(best_K): df_segmentation_result[f'archetype_{k+1}_weight'] = A_final[:, k]
             df_segmentation_result['dominant_archetype'] = np.argmax(A_final, axis=1) + 1
@@ -426,7 +555,18 @@ class SegmentationService(Service):
             for sid, arc_num in zip(steam_ids_list, dominant_archetypes): membership[f"Arketipe_{arc_num}"].append(sid)
             max_len = max(len(v) for v in membership.values()); [v.extend([np.nan] * (max_len - len(v))) for v in membership.values()]
 
+            job_status[job_id].update({
+                'status': 'processing',
+                'progress': 90,
+                'message': "Calculating archetype characteristics..."
+            })
             karakteristik = self._calculate_all_archetype_characteristics(df_segmentation_result.reset_index(), genre_map_df)
+
+            job_status[job_id].update({
+                'status': 'processing',
+                'progress': 90,
+                'message': "Generating archetype interpretations..."
+            })
             interpretasi = self._generate_archetype_interpretations(karakteristik, proses_id)
 
             df_players.to_csv(players_data_path, index=False)
