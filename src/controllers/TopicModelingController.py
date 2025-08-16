@@ -30,14 +30,32 @@ from datetime import datetime
 
 # In-memory job storage
 job_status = {}
+job_threads = {}  # Track active threads
+stop_flags = {}  
 
 @AnalyzeApp.route('/full_steam', methods=['POST'])
 @isAuthenticated
 def analyze_with_threading():
     try:
+        # Handle Steam IDs (optional)
         steam_ids = []
         if request.form.get('steam_ids'):
             steam_ids = request.form['steam_ids'].split(", ")
+            steam_ids = [id.strip() for id in steam_ids if id.strip()]  # Clean empty strings
+        
+        # Handle file upload (optional)
+        files_dict = {"file": None}
+        if "file" in request.files and request.files["file"].filename != "":
+            uploaded_file = request.files["file"]
+            csv_path = upload_file(uploaded_file)
+            if not csv_path:
+                return Response.error("Gagal upload file", 400)
+            files_dict["file"] = csv_path
+        
+        # Validation: At least one input method must be provided
+        if not steam_ids and not files_dict["file"]:
+            return Response.error("Please provide either Steam IDs or upload a file", 400)
+        
         
         # Generate job ID
         job_id = str(uuid.uuid4())
@@ -54,17 +72,6 @@ def analyze_with_threading():
         
         # Get Flask app context
         app = current_app._get_current_object()  # 🔑 Key line
-        files_dict = {}
-        
-        # Handle file upload properly
-        if "file" in request.files and request.files["file"].filename != "":
-            uploaded_file = request.files["file"]
-            csv_path = upload_file(uploaded_file)
-            if not csv_path:
-                return jsonify({"status": "failed", "message": "Gagal upload file"}), 400
-            files_dict["file"] = csv_path  # Store only the file path
-        else:
-            files_dict["file"] = None  
         # Start background thread with app context
         print(f"🔄 Starting analysis for job: {files_dict}")
         thread = threading.Thread(
@@ -101,8 +108,6 @@ def run_analysis_with_context(app, job_id, steam_ids, files_dict, user_id):
             from src.services.AnalysisOrchestratorService import AnalysisOrchestratorService
             analysisOrchestratorService = AnalysisOrchestratorService()
             
- 
-
             # Run analysis (this now works because of app context)
             result = analysisOrchestratorService.run_full_analysis_pipeline(
                 steam_ids, files_dict, user_id  # Files handling might need adjustment
@@ -138,6 +143,45 @@ def check_thread_status(job_id):
         return Response.error("Job not found", 404)
     
     return Response.success(job_status[job_id], "Job status retrieved")
+
+@AnalyzeApp.route('/stop/<job_id>', methods=['POST'])
+@isAuthenticated
+def stop_analysis(job_id):
+    """Stop a running analysis"""
+    try:
+        # Check if job exists
+        if job_id not in job_status:
+            return Response.error("Job not found", 404)
+        
+        # Check if user owns this job
+        job_info = job_status[job_id]
+        if job_info.get('user_id') != g.user['user_id']:
+            return Response.error("Unauthorized access to job", 403)
+        
+        # Check if job can be stopped
+        current_status = job_info.get('status')
+        if current_status in ['completed', 'failed', 'cancelled']:
+            return Response.error(f"Cannot stop job with status: {current_status}", 400)
+        
+        # Set stop flag
+        if job_id in stop_flags:
+            stop_flags[job_id].set()
+            print(f"🛑 Stop signal sent for job: {job_id}")
+        
+        # Update job status
+        job_status[job_id].update({
+            'status': 'stopping',
+            'message': 'Stop signal sent, waiting for process to terminate...'
+        })
+        
+        return Response.success({
+            'job_id': job_id,
+            'status': 'stopping',
+            'message': 'Stop signal sent successfully'
+        }, "Stop signal sent to analysis process")
+        
+    except Exception as e:
+        return Response.error(f"Failed to stop analysis: {str(e)}", 500)
 
 
 @AnalyzeApp.route('/test', methods=['GET'])
