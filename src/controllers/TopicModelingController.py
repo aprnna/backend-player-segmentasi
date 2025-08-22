@@ -6,7 +6,7 @@ from src.services.SegmentasiService import SegmentationService
 from src.services.AnalysisOrchestratorService import AnalysisOrchestratorService
 from src.utils.preprocessing.text_processor import preprocess_single_text
 from src.utils.scraping.steam_data import get_steam_id_data
-from src.utils.scraping.steam_review import get_game_reviews
+from src.utils.scraping.steam_review import get_game_reviews_parallel
 import src.utils.getResponse as Response
 import io
 import pandas as pd
@@ -219,7 +219,7 @@ def scrapping_review():
     steam_ids = data.get('steam_ids', [])
     if not steam_ids or not isinstance(steam_ids, list):
         return Response.error("Invalid input. Please provide a list of Steam IDs.", 400)
-    reviews = get_game_reviews(steam_ids)
+    reviews = get_game_reviews_parallel(steam_ids)
     if not reviews:
         return Response.error("No reviews found for the provided Steam IDs.", 404)
     df = pd.DataFrame(reviews)

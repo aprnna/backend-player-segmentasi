@@ -46,6 +46,10 @@ class ScrappingService(Service):
             saved_records = []
             for data in datas:
                 # 'data' sudah merupakan dictionary
+                # pastikan semua kolom ada
+                required_columns = ["Steam_ID", "Page", "Game", "Genre", "Rating", "Review", "Playtime", "PostedDate"]
+                if not all(col in data for col in required_columns):
+                    continue
                 new_scrapping = scrapping_repository.createNewScrapping(data)
                 saved_records.append(new_scrapping)
             

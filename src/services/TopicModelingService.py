@@ -8,7 +8,7 @@ from src.repositories.ScrappingRepository import ScrappingRepository
 from src.utils.convert import queryResultToDict
 from src.utils.errorHandler import errorHandler
 from src.utils.preprocessing.text_processor import preprocess_single_text
-from src.utils.scraping.steam_review import get_game_reviews
+from src.utils.scraping.steam_review import get_game_reviews_parallel
 from bertopic import BERTopic
 import pandas as pd
 from sklearn.preprocessing import normalize
@@ -153,43 +153,43 @@ class TopicModelingService(Service):
             batch_num = (i // batch_size) + 1
             batch = reviews[i:i + batch_size]
             
-            with self.memory_guard(f"batch_{batch_num}"):
-                # Load model untuk batch ini
-                model = self._load_model_on_demand()
+            # with self.memory_guard(f"batch_{batch_num}"):
+            # Load model untuk batch ini
+            model = self._load_model_on_demand()
+            
+            try:
+                # Process batch
+                self.logger.info(f"⚙️ Processing batch {batch_num}/{total_batches}")
                 
+                # Generate embeddings
+                embeddings = model.embedding_model.embed(batch)
+                
+                # Get topics
+                topics, _ = model.transform(batch, embeddings=embeddings)
+                
+                # Store results
+                batch_results = {
+                    'topics': topics.tolist(),
+                    'reviews': batch,
+                    'batch_num': batch_num
+                }
+                results.append(batch_results)
+                
+                # Cleanup immediately after each batch
+                del model, embeddings, topics
+                # gc.collect()
+                
+                self.logger.info(f"✅ Batch {batch_num} completed")
+                
+            except Exception as e:
+                self.logger.error(f"❌ Error in batch {batch_num}: {e}")
+                # Cleanup pada error
                 try:
-                    # Process batch
-                    self.logger.info(f"⚙️ Processing batch {batch_num}/{total_batches}")
-                    
-                    # Generate embeddings
-                    embeddings = model.embedding_model.embed(batch)
-                    
-                    # Get topics
-                    topics, _ = model.transform(batch, embeddings=embeddings)
-                    
-                    # Store results
-                    batch_results = {
-                        'topics': topics.tolist(),
-                        'reviews': batch,
-                        'batch_num': batch_num
-                    }
-                    results.append(batch_results)
-                    
-                    # Cleanup immediately after each batch
-                    del model, embeddings, topics
-                    gc.collect()
-                    
-                    self.logger.info(f"✅ Batch {batch_num} completed")
-                    
-                except Exception as e:
-                    self.logger.error(f"❌ Error in batch {batch_num}: {e}")
-                    # Cleanup pada error
-                    try:
-                        del model
-                    except:
-                        pass
-                    gc.collect()
-                    raise
+                    del model
+                except:
+                    pass
+                # gc.collect()
+                raise
         
         return results
     def _cache_results(self, results, cache_key):
@@ -489,11 +489,11 @@ class TopicModelingService(Service):
         """Main method dengan optimasi extreme untuk VPS 1GB - Complete Implementation"""
         
         # Pre-flight check
-        self._emergency_cleanup()
-        memory_info = self._get_memory_usage()
-        if memory_info['available_mb'] < 200:  # Kurang dari 200MB
-            return self.failedOrSuccessRequest('failed', 503, 
-                {'message': f'Insufficient memory. Available: {memory_info["available_mb"]:.0f}MB, Required: >200MB'})
+        # self._emergency_cleanup()
+        # memory_info = self._get_memory_usage()
+        # if memory_info['available_mb'] < 5000:  # Kurang dari 5000MB
+        #     return self.failedOrSuccessRequest('failed', 503, 
+        #         {'message': f'Insufficient memory. Available: {memory_info["available_mb"]:.0f}MB, Required: >5000MB'})
         
         try:
             # Import dependencies
@@ -502,7 +502,7 @@ class TopicModelingService(Service):
             from src.repositories.ScrappingRepository import ScrappingRepository
             from src.repositories.TopicModelingRepository import TopicModelingRepository
             from src.utils.preprocessing.text_processor import preprocess_single_text
-            from src.utils.scraping.steam_review import get_game_reviews
+            from src.utils.scraping.steam_review import get_game_reviews_parallel
             from src.config.database import db
             import pandas as pd
             import os
@@ -539,27 +539,27 @@ class TopicModelingService(Service):
             steam_id_batches = [steam_ids[i:i+5] for i in range(0, len(steam_ids), 5)]
 
             for batch_steam_ids in steam_id_batches:
-                with self.memory_guard("scraping_batch"):
-                    for steam_id in batch_steam_ids:
-                        getReviewsScrapping = scrapingService.getAllScrappingBySteamId(steam_id)
-                        if getReviewsScrapping.get('status') == 'failed':
-                            print(f"Tidak ada data review di database: {steam_id}")
-                            steam_id_scrapping.append(steam_id)
-                        else:
-                            reviews = getReviewsScrapping.get('data', [])
-                            for review in reviews:  # Max 30 reviews per game
-                                results.append(review)
-                    gc.collect()
+                # with self.memory_guard("scraping_batch"):
+                for steam_id in batch_steam_ids:
+                    getReviewsScrapping = scrapingService.getAllScrappingBySteamId(steam_id)
+                    if getReviewsScrapping.get('status') == 'failed':
+                        print(f"Tidak ada data review di database: {steam_id}")
+                        steam_id_scrapping.append(steam_id)
+                    else:
+                        reviews = getReviewsScrapping.get('data', [])
+                        for review in reviews:  # Max 30 reviews per game
+                            results.append(review)
+                    # gc.collect()
             
             # Scraping jika diperlukan
             if steam_id_scrapping:
                 print(f"🚀 Memulai scraping untuk Steam IDs: {steam_id_scrapping}")
-                with self.memory_guard("scraping_new"):
-                    reviews = get_game_reviews(steam_id_scrapping)
-                    if reviews:
-                        scrapingService.createNewScrapping(reviews)
-                        for review in reviews:  # Limit scraping results
-                            results.append(review)
+                # with self.memory_guard("scraping_new"):
+                reviews = get_game_reviews_parallel(steam_id_scrapping)
+                if reviews:
+                    scrapingService.createNewScrapping(reviews)
+                    for review in reviews:  # Limit scraping results
+                        results.append(review)
             
             print(f"Total reviews yang akan dianalisis: {len(results)}")
             if len(results) == 0:
@@ -580,20 +580,20 @@ class TopicModelingService(Service):
                 'message': "Preprocessing reviews..."
             })
             # 4. Preprocessing dengan memory management
-            with self.memory_guard("preprocessing"):
-                reviews_df = pd.DataFrame(results)
-                reviews_df.dropna(subset=['Review'], inplace=True)
-                reviews = reviews_df['Review'].tolist()
-                
-                # Preprocess dalam batch kecil
-                cleaned_reviews = []
-                for i in range(0, len(reviews), 10):
-                    batch = reviews[i:i+10]
-                    batch_cleaned = [preprocess_single_text(review) for review in batch]
-                    cleaned_reviews.extend(batch_cleaned)
+            # with self.memory_guard("preprocessing"):
+            reviews_df = pd.DataFrame(results)
+            reviews_df.dropna(subset=['Review'], inplace=True)
+            reviews = reviews_df['Review'].tolist()
+            
+            # Preprocess dalam batch kecil
+            cleaned_reviews = []
+            for i in range(0, len(reviews), 10):
+                batch = reviews[i:i+10]
+                batch_cleaned = [preprocess_single_text(review) for review in batch]
+                cleaned_reviews.extend(batch_cleaned)
                     
-                    if i % 30 == 0:  # Cleanup setiap 30 reviews
-                        gc.collect()
+                    # if i % 30 == 0:  # Cleanup setiap 30 reviews
+                    #     gc.collect()
             
             # 5. Topic modeling dengan ultra-batch processing
             print(f"⚙️ Membuat embedding untuk {len(cleaned_reviews)} review baru...")
@@ -707,6 +707,8 @@ class TopicModelingService(Service):
             return self.failedOrSuccessRequest('success', 201, results)
             
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             try:
                 db.session.rollback()
             except:
